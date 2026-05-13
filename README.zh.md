@@ -6,10 +6,10 @@
 
 信号有两种来源：
 
-1. **`SIGNAL_SOURCE=strategy`（默认）** — 使用与内置回测 **完全一致** 的规则类：均线交叉、RSI、MACD、布林带、**一目均衡表（简化云带）**、**斐波那契回撤收回**、**成交量分布 POC 突破**、**随机指标**、**ATR 突破**，以及可选 **机器学习**（TorchScript / Keras）。
+1. **`SIGNAL_SOURCE=strategy`（默认）** — 与内置回测 **完全一致** 的规则类：均线交叉、RSI、**rsi_adaptive**（波动率调节 RSI 阈值）、MACD、布林带、**一目均衡表（简化云带）**、**斐波那契回撤收回**、**成交量分布 POC 突破**、**随机指标**、**ATR 突破**、可选 **机器学习**（TorchScript / Keras）、**composite**（组合策略）、可选 **RL**（Stable-Baselines3）。
 2. **`SIGNAL_SOURCE=llm`** — 将 **OHLCV** 与 **账户上下文**（持仓、钱包、持仓模式等）发给 **OpenAI 兼容** 的 Chat API（如 OpenAI、DeepSeek、Azure），解析严格 **JSON** 为交易信号。
 
-仓库还包含：**教学向简化回测**、基于交易所流水的 **真实盈亏汇总 CLI**（`futures-llm-real-pnl`）、可选的 **HTTP 可观测性** 与 **简易仪表盘**，以及核心路径的 **pytest** 测试。
+仓库还包含：**教学向简化回测**、**`futures-llm-real-pnl`**（真实账单汇总）、**`futures-llm-var-validate`**（滚动 VaR / Kupiec 诊断）、可选 **HTTP 可观测性** 与 **仪表盘**、以及 **pytest**。
 
 > **免责声明：** 本项目为 **实验性** 软件，**合约交易风险极高**。请在充分理解行为前优先使用 **测试网** 与 **`DRY_RUN=true`**。API Key、配置与亏损由使用者自行承担。**内置回测的 PnL 为简化模型，不能替代交易所账单级真实盈亏。**
 
@@ -25,7 +25,10 @@
 | **Telegram（可选）** | 内置模板或自定义 `TELEGRAM_MESSAGE_TEMPLATE`；JSON `sendMessage`；可选 `TELEGRAM_PARSE_MODE` |
 | **ML（可选）** | `STRATEGY_NAME=ml`：TorchScript（`ML_TORCH_ARCH=mlp\|lstm\|transformer`）或 Keras 扁平 MLP；**`ML_HOT_RELOAD`** 按间隔检查 `ML_MODEL_PATH` 的 **mtime** 并热加载 |
 | **ML 训练 / 运维** | `examples/train_ml_torch.py`（`--csv` / **分页 `--fetch`**）；**`examples/cron_retrain_4h.sh`** 定时重训 + **原子 `mv` 替换** |
-| **风控** | `MIN_CONFIDENCE`、名义上限 `MAX_NOTIONAL_USDT`、可选 UTC 自然日 **日交易次数 / 日亏损** 限制 |
+| **高阶规则** | **`composite`**（组合投票）、**`rsi_adaptive`**（波动率调节 RSI 阈值）、**`rl_sb3`**（Stable-Baselines3 策略，需 **`.[rl]`**） |
+| **RL 训练** | `examples/train_rl_sb3.py`：**Gymnasium** 环境、多种 **奖励**（`pnl` / `pnl_cost` / `risk_adjusted`）、**PPO** 与可调 **超参数** |
+| **VaR 验证** | **`futures-llm-var-validate`**：滚动历史 VaR 与实现对数收益对比，**Kupiec** 覆盖率检验（`--csv` 或 `--fetch`） |
+| **风控** | `MIN_CONFIDENCE`、名义上限 `MAX_NOTIONAL_USDT`、UTC **日交易 / 日亏损**；可选 **`RISK_VAR_*`** 闸与 **`RISK_CORR_*`** 相关性日志（**`cli`**） |
 | **会话状态** | JSON `STATE_FILE`，跨进程用 `filelock` |
 | **回测** | CSV 或 CCXT 拉取；按 Bar **收盘价** 近似成交 + `fee_bps`；**不含** 完整资金费/保证金/强平等仿真 |
 | **真实 PnL** | 拉取 `/fapi/v1/income` 汇总已实现盈亏、资金费、手续费等 |
@@ -72,10 +75,11 @@ copy .env.example .env   # Windows；Unix 用 cp
 | 额外配置 | 安装命令 | 用途 |
 |----------|----------|------|
 | （默认） | `pip install -e .` | 核心机器人 + 回测 |
-| `dev` | `pip install -e ".[dev]"` | `pytest` |
+| `dev` | `pip install -e ".[dev]"` | `pytest` + **gymnasium**（环境烟测） |
 | `realtime` | `pip install -e ".[realtime]"` | `websocket-client`，启用 **`USE_WEBSOCKET`** |
 | `ml-torch` | `pip install -e ".[ml-torch]"` | PyTorch：**TorchScript 推理** + **训练示例** |
 | `ml-tf` | `pip install -e ".[ml-tf]"` | TensorFlow/Keras：**仅扁平** MLP 推理 |
+| `rl` | `pip install -e ".[rl]"` | **stable-baselines3** + **gymnasium**（**`rl_sb3`** 与 **`train_rl_sb3.py`**） |
 
 安装后可使用入口命令：
 
@@ -84,6 +88,7 @@ copy .env.example .env   # Windows；Unix 用 cp
 | `futures-llm-bot` | 主交易循环 |
 | `futures-llm-backtest` | 规则回测（CSV 或 `--fetch`） |
 | `futures-llm-real-pnl` | 币安 USDT-M **收入 / income** 汇总 |
+| `futures-llm-var-validate` | **滚动 VaR 回测** + Kupiec 统计（历史对数收益） |
 
 若未执行 `pip install -e .`，可设置 **`PYTHONPATH=src`** 后使用 `python -m futures_llm_bot`。
 
@@ -120,6 +125,10 @@ docker run --rm \
 - **WebSocket（可选）：** `USE_WEBSOCKET`、`WS_RECONNECT_*`（需 `.[realtime]`；**仅 strategy 模式**）  
 - **Telegram（可选）：** `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`、`TELEGRAM_TEMPLATE`、`TELEGRAM_MESSAGE_TEMPLATE`、`TELEGRAM_PARSE_MODE`  
 - **ML（可选）：** `ML_BACKEND`、`ML_MODEL_PATH`、`STRATEGY_ML_WINDOW`、`ML_TORCH_ARCH`；**`ML_HOT_RELOAD`**（默认 `true`）、**`ML_HOT_RELOAD_INTERVAL_SEC`**（默认 `30`，`STRATEGY_NAME=ml` 时两次 mtime 检查的最小间隔秒数）  
+- **组合策略（可选）：** **`STRATEGY_NAME=composite`** 时 **`COMPOSITE_MEMBERS`**（逗号分隔子策略 id）、**`COMPOSITE_MODE`**（`majority` \| `weighted` \| `unanimous` \| `first`）、可选 **`COMPOSITE_WEIGHTS`**  
+- **波动率自适应 RSI（可选）：** **`STRATEGY_NAME=rsi_adaptive`** 时 **`STRATEGY_VOL_WINDOW`、`STRATEGY_VOL_REF_WINDOW`、`STRATEGY_VOL_SENSITIVITY`**（及基础 **`STRATEGY_RSI_*`**）  
+- **RL（可选）：** **`STRATEGY_NAME=rl_sb3`** 时 **`RL_MODEL_PATH`**（SB3 zip）、**`RL_WINDOW`**；需 **`.[rl]`**  
+- **风险指标（可选）：** **`RISK_VAR_*`**（经验收益 VaR 闸，可 **`RISK_VAR_BLOCK`**）、**`RISK_CORR_AUX_SYMBOL`、`RISK_CORR_LOG_EVERY`**（与主品种对数收益的相关性日志）  
 - **持仓 / HTTP：** `POSITION_MODE`、`EXCHANGE_TIMEOUT_MS`、`POSITION_POLL_*`  
 - **会话风控：** `MAX_TRADES_PER_DAY`、`MAX_DAILY_LOSS_USDT`、`STATE_FILE`、`DAILY_LOSS_WARN_RATIO`  
 - **可观测性：** `OBSERVABILITY_HOST`、`OBSERVABILITY_PORT`（非 0 则启用内置页面与 JSON/Prometheus）
@@ -150,7 +159,7 @@ python -m futures_llm_bot --once
 
 - 使用 **`strategy_factory.build_live_strategy`**，与 **`futures-llm-backtest --strategy`** 为同一套类。  
 - **不需要** `OPENAI_API_KEY`。  
-- **`STRATEGY_NAME`** 须为已注册 id；参数与 **`futures-llm-backtest`** 一致（均线/RSI/MACD/BB/一目/Fib/VP/随机/ATR/ML，见 **[内置规则策略](#内置规则策略)**）。
+- **`STRATEGY_NAME`** 须为已注册 id；参数与 **`futures-llm-backtest`** 一致（含 **composite / rsi_adaptive / rl_sb3**，见 **[内置规则策略](#内置规则策略)**）。
 
 ### LLM 模式（`SIGNAL_SOURCE=llm`）
 
@@ -166,6 +175,7 @@ python -m futures_llm_bot --once
 |-----------------|------|----------|
 | `sma_cross` | 快/慢均线交叉 | `STRATEGY_FAST`、`STRATEGY_SLOW` |
 | `rsi` | RSI 超卖/超买区 | `STRATEGY_RSI_PERIOD`、超买超卖阈值 |
+| `rsi_adaptive` | 滚动实现波动率调节 RSI 上下轨 | `STRATEGY_RSI_*`、`STRATEGY_VOL_WINDOW`、`STRATEGY_VOL_REF_WINDOW`、`STRATEGY_VOL_SENSITIVITY` |
 | `macd` | MACD 线与信号线交叉 | 快慢周期 + `STRATEGY_MACD_SIGNAL` |
 | `bollinger` / `bb` | 价格穿上下轨 | `STRATEGY_BB_PERIOD`、`STRATEGY_BB_STD` |
 | `ichimoku` / `ichi` | 转换/基准线交叉 + **同期**云带过滤 | `STRATEGY_ICHIMOKU_*` |
@@ -174,6 +184,8 @@ python -m futures_llm_bot --once
 | `stochastic` / `stoch` | 超卖/超买区 %K 与 %D 交叉 | `STRATEGY_STOCH_*` |
 | `atr_breakout` / `atr` | 收盘相对昨收突破 ± `mult×ATR` | `STRATEGY_ATR_PERIOD`、`STRATEGY_ATR_MULT` |
 | `ml` | 最近 **对数收益** 序列上的分类器 | `ML_BACKEND`、`ML_MODEL_PATH`、`STRATEGY_ML_WINDOW`、`ML_TORCH_ARCH` |
+| `composite` | 每个 bar 运行多个 **叶子** 策略并按模式合并信号 | `COMPOSITE_MEMBERS`、`COMPOSITE_MODE`、可选 `COMPOSITE_WEIGHTS`；子策略共用同一套数值参数 |
+| `rl_sb3` | SB3（如 PPO）策略：裁剪对数收益窗 → 离散 hold/long/short | **`RL_MODEL_PATH`**、**`RL_WINDOW`**（需 **`.[rl]`**）；训练见 **`examples/train_rl_sb3.py`** |
 
 统一输出 **`LLMSignal`**，**风控与执行** 在 LLM 与规则之间复用。
 
@@ -217,6 +229,31 @@ python examples/train_ml_torch.py --fetch --no-testnet --symbol BTC/USDT:USDT --
 - 使用 **`examples/cron_retrain_4h.sh`**（bash + 环境变量）或等效的 **systemd timer** / **Kubernetes CronJob**：训练 → 写入 **`${MODEL_OUT}.tmp.$$`** → **`mv -f`** 覆盖 **`ML_MODEL_PATH`**。
 - **`ML_HOT_RELOAD=true`** 时，进程最多每隔 **`ML_HOT_RELOAD_INTERVAL_SEC`** 检查一次磁盘；请始终用 **原子 `mv`**，避免读到半截文件并保证 mtime 一次更新。
 
+### RL 策略（`rl_sb3`）与训练
+
+- **实盘 / 回测：** **`STRATEGY_NAME=rl_sb3`** 加载 **Stable-Baselines3** 检查点（**`RL_MODEL_PATH`**，由 `model.save` 生成的 zip）。观测与训练一致：**`RL_WINDOW`** 根收盘 → **`RL_WINDOW-1`** 条 **裁剪对数收益**；动作 **0/1/2** = **平 / 多 / 空**（下一根 bar 对数收益上的目标净头寸）。
+- **安装：** `pip install -e ".[rl]"`（**gymnasium** + **stable-baselines3**）。
+- **环境：** `futures_llm_bot.rl.futures_perp_env.FuturesPerpBarEnv`；奖励 **`pnl`**、**`pnl_cost`**（换手 × `trans_cost`）、**`risk_adjusted`**（对累积 PnL 轨迹加回撤惩罚）。
+
+```bash
+pip install -e ".[rl]"
+python examples/train_rl_sb3.py --fetch --no-testnet --symbol BTC/USDT:USDT --timeframe 1h \\
+  --limit 8000 --window 48 --timesteps 200000 --reward pnl_cost --out artifacts/rl_ppo.zip
+```
+
+主要 CLI：**`--timesteps`、`--learning-rate`、`--n-steps`、`--batch-size`、`--gamma`、`--gae-lambda`、`--clip-range`、`--ent-coef`、`--net-arch`（如 `64,64`）、`--episode-len`、`--reward`、`--trans-cost`、`--drawdown-penalty`**。实盘前令 **`RL_WINDOW`** 与 **`RL_MODEL_PATH`** 与训练一致。奖励为 **(bar 对数收益)** 的简化近似，**不含** 手续费/资金费；投产前请自行设计 **成本与偏好**。
+
+### VaR 回测 CLI（`futures-llm-var-validate`）
+
+对 **历史对数收益** 做 **滚动样本 VaR**：每个时刻用过去 **`lookback`** 根收益估计 **`alpha`** 分位 VaR，若 **当期实现收益低于该 VaR** 记为 **例外（violation）**。输出 **例外率** 与 **Kupiec** 无条件覆盖率 **LR 统计量**（近似 χ²(1)；字段 **`reject_h0_coverage_5pct`** 与临界值 **3.84** 比较）。
+
+```bash
+futures-llm-var-validate --fetch --no-testnet --symbol BTC/USDT:USDT --timeframe 1h --limit 5000 --lookback 250 --alpha 0.05
+futures-llm-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-out var_report.json
+```
+
+**注意：** 理想化检验假设与 **波动率聚集、结构突变** 不完全兼容；监管级模型可考虑 **Christoffersen**、**滤波历史模拟** 等。实盘 **`cli`** 中 **`RISK_VAR_*`** 闸使用 **`RISK_VAR_WINDOW`** 上的同类分位数思想。
+
 ### WebSocket 实时 K 线
 
 - 设置 **`USE_WEBSOCKET=true`** 并安装 **`.[realtime]`**；仅 **`SIGNAL_SOURCE=strategy`**。主循环仍默认在 1m 边界附近醒来。
@@ -241,7 +278,9 @@ futures-llm-backtest --fetch --strategy atr_breakout --atr-period 14 --atr-mult 
 # ML 回测需指定 --ml-model，可选 --ml-torch-arch / --ml-backend
 ```
 
-**`futures-llm-backtest --help`** 可查看一目、Fib、VP、ML 等参数。
+**`futures-llm-backtest --help`** 含一目、Fib、VP、**composite**（`--composite-members` 等）、**rsi_adaptive**（`--vol-*`）、**ML**、**rl_sb3**（`--rl-model`，运行需 **`.[rl]`**）。
+
+历史 **VaR 校准** 可使用 **`futures-llm-var-validate`**（滚动分位数 + Kupiec）。
 
 **CSV 列：** `timestamp_ms,open,high,low,close,volume`（可有可无表头）。
 
@@ -294,8 +333,8 @@ python -m pytest tests -v
 
 | 路径 | 说明 |
 |------|------|
-| `src/futures_llm_bot/` | 主包（`cli`、`execution`、`backtest`、`strategy_factory`、`ml_signal_strategy`、`binance_kline_ws`、`telegram_format` 等） |
-| `examples/` | **`train_ml_torch.py`**（TorchScript 导出；合成 / `--csv` / 分页 `--fetch`）；**`cron_retrain_4h.sh`**（适合 cron 的重训 → 原子 `mv`） |
+| `src/futures_llm_bot/` | 主包（`cli`、`execution`、`backtest`、`strategy_factory`、`ml_signal_strategy`、`rl`、`risk_metrics`、`var_validation` 等） |
+| `examples/` | **`train_ml_torch.py`**、**`train_rl_sb3.py`**（SB3 PPO）；**`cron_retrain_4h.sh`**（原子 `mv` 重训） |
 | `tests/` | Pytest |
 | `ARCHITECTURE.md` | 模块与数据流（英文） |
 | `.env.example` | 环境变量模板 |

@@ -42,8 +42,14 @@ flowchart LR
 | `execution_oneway` / `execution_hedge` | Order sequencing and caps per mode. |
 | `execution` | `build_exchange`, `resolve_account_hedged`, `execute_signal` (orchestration). |
 | `llm_strategy` | System prompt, JSON extraction, OpenAI client with backoff (when `SIGNAL_SOURCE=llm`). |
-| `strategy_factory` | Builds rule strategies (SMA, RSI, MACD, Bollinger, Ichimoku-style, Fib reclaim, volume-profile POC, Stochastic, ATR breakout, **ML**) when `SIGNAL_SOURCE=strategy`. |
+| `strategy_factory` | Builds rule strategies (SMA, RSI, MACD, Bollinger, Ichimoku-style, Fib reclaim, volume-profile POC, Stochastic, ATR breakout, **ML**, **composite**, **rsi_adaptive**, **rl_sb3**) when `SIGNAL_SOURCE=strategy`. |
 | `ml_signal_strategy` | Optional **TorchScript** / **Keras** on **log-returns**; **`ML_HOT_RELOAD`** rechecks `ML_MODEL_PATH` mtime on each bar (throttled) and reloads on change. |
+| `rl_signal_strategy` | Optional **Stable-Baselines3** `BaseAlgorithm.load`; observation = clipped **log-returns** of length **`RL_WINDOW-1`** (matches training). |
+| `rl/` | **`FuturesPerpBarEnv`** (Gymnasium): discrete position, reward modes for **`examples/train_rl_sb3.py`** (requires **`.[rl]`**). |
+| `composite_strategy` | Voting / weighted / unanimity / first-non-hold merge of child **`Strategy`** instances. |
+| `risk_metrics` | Log returns, historical VaR quantile, rolling vol helpers, return correlation; used by **`cli`** VaR gate and **`var_validation`**. |
+| `var_validation` | Rolling historical VaR **violation** counts and **Kupiec** unconditional coverage LR (~ χ²(1)). |
+| `var_validation_cli` | Console **`futures-llm-var-validate`** (`--csv` or `--fetch`). |
 | `binance_kline_ws` | Optional WebSocket consumer: **`reconnect_delay_sec`**, thread **`WebSocketApp`** loop, in-memory OHLCV deque. |
 | `telegram_format` / `telegram_notify` | Named/custom **`str.format`** templates; JSON **`sendMessage`** + optional **`parse_mode`**. |
 | `real_pnl` / `real_pnl_cli` | Fetch Binance USDT-M `/fapi/v1/income`, aggregate REALIZED_PNL / FUNDING_FEE / COMMISSION (exchange-reported). |
@@ -73,6 +79,18 @@ This path is **deterministic** and suitable for walk-forward and parameter sweep
 - **Backtest:** ML strategies default to **`ml_hot_reload=false`** so runs stay reproducible; CLI backtests do not consult live env hot-reload toggles unless you wire them explicitly.
 - **Scheduled deploy:** retrain jobs should write **`${MODEL_OUT}.tmp`** then **`mv`** onto **`ML_MODEL_PATH`** so readers see either the old or new file, never a partial write.
 
+## RL (optional `rl` extra)
+
+- **`rl/futures_perp_env.py`**: Gymnasium **Env** with **Box(`window-1`)** clipped log-return observations and **Discrete(3)** actions mapping to net position **{0,+1,-1}**. Rewards: **`pnl`**, **`pnl_cost`** (turnover penalty), **`risk_adjusted`** (drawdown penalty on a simple log-equity trace).
+- **`examples/train_rl_sb3.py`**: Loads **CSV** / **paginated `--fetch`** / synthetic prices, wraps **`DummyVecEnv`**, trains **PPO** (hyperparameters via CLI), **`model.save`** → zip used as **`RL_MODEL_PATH`** for **`STRATEGY_NAME=rl_sb3`**.
+- **`rl_signal_strategy.py`**: **`BaseAlgorithm.load`** and **`predict`**; must match **`RL_WINDOW`** and action semantics used in training.
+
+## VaR validation (offline)
+
+- **`var_validation.py`**: For each forecast index `t`, VaR = empirical **`alpha`** quantile of **prior `lookback` log returns**; **violation** if realized **`r[t] < VaR`**. Reports rate and **Kupiec** LR (simple unconditional coverage test — not sufficient under volatility clustering).
+- **`var_validation_cli.py`**: **`futures-llm-var-validate`** shares data loading patterns with **`backtest_cli`** (`--csv` / `--fetch`).
+- **Live gate:** **`cli._tick`** may block **LONG/SHORT** when **`RISK_VAR_BLOCK`** and trailing-window VaR breaches **`RISK_VAR_TAIL_LIMIT`** (see **`risk_metrics.var_tail_block_reason_from_ohlcv`**).
+
 ## Observability
 
 When **`OBSERVABILITY_PORT` > 0**, a background thread serves:
@@ -96,4 +114,4 @@ Bind address is **`OBSERVABILITY_HOST`** (default `127.0.0.1`). Use a reverse pr
 - **ML models**: Train offline; match **input rank** (`mlp` vs `lstm`/`transformer`) and **3-class** head to **`ml_signal_strategy`**; export TorchScript with **`torch.jit.trace`** (or compatible).
 - **Alerting**: Poll `/health` or scrape `/metrics`; wire to PagerDuty/Slack outside this repo (e.g. Prometheus `alertmanager`, or a tiny cron hitting `/health`).
 - **Higher-frequency / multi-symbol / async IO**: Would need **`ccxt.async_support`**, per-symbol state, and scheduling; not in the current single-pair sync loop.
-- **Web dashboard**: Serve or proxy **`/metrics` + `/health`** with Grafana or a static page; optional small FastAPI app alongside the bot.
+- **RL policies**: Train with **`examples/train_rl_sb3.py`**; keep **`RL_WINDOW`**, observation clipping, and **0/1/2** action semantics aligned with **`FuturesPerpBarEnv`** / **`build_observation_vector`**.
