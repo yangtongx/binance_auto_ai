@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+import textwrap
+import time
+from datetime import datetime, timezone
+
+from futures_llm_bot.binance_usdm import (
+    build_exchange,
+    execute_signal,
+    fetch_futures_usdt_equity,
+    format_account_context,
+    resolve_account_hedged,
+)
+from futures_llm_bot.backtest.engine import Strategy
+from futures_llm_bot.config import Settings
+from futures_llm_bot import metrics
+from futures_llm_bot.llm_strategy import llm_decide
+from futures_llm_bot.strategy_factory import build_live_strategy, strategy_min_ohlcv_bars
+from futures_llm_bot.observability import start_observability_background
+from futures_llm_bot.risk import assess_signal
+from futures_llm_bot.session_risk import SessionRisk
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
+
+def _sleep_until_next_minute_close(buffer_sec: float = 2.0) -> None:
+    now = time.time()
+    next_close = int(now // 60) * 60 + 60
+    sleep_s = max(0.0, next_close - now + buffer_sec)
+    logger.info("sleep %.1fs until next 1m candle close (+buffer)", sleep_s)
+    time.sleep(sleep_s)
+
+
+def _klines_prompt(ex, settings: Settings, *, account_context: str) -> str:
+    ohlcv = ex.fetch_ohlcv(settings.symbol, timeframe=settings.timeframe, limit=settings.klines_limit)
+    rows = ["time,open,high,low,close,volume"]
+    for ts, o, h, low, c, v in ohlcv[-30:]:
+        t = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
+        rows.append(f"{t},{o},{h},{low},{c},{v}")
+    table = "\n".join(rows)
+    return textwrap.dedent(
+        f"""
+        Symbol: {settings.symbol}
+        Timeframe: {settings.timeframe}
+        MAX_NOTIONAL_USDT (hard cap per leg / net exposure): {settings.max_notional_usdt}
+        {account_context}
+
+        Last candles (UTC, oldest->newest within sample):
+        {table}
+        Decide the next action for USDT-M perpetual. Prefer hold when uncertain.
+        """
+    ).strip()
+
+
+def _ohlcv_fetch_limit(settings: Settings) -> int:
+    if settings.signal_source == "strategy":
+        return max(settings.klines_limit, strategy_min_ohlcv_bars(settings))
+    return settings.klines_limit
+
+
+def _tick(
+    ex,
+    settings: Settings,
+    *,
+    account_hedged: bool,
+    session: SessionRisk,
+    rule_strategy: Strategy | None,
+) -> None:
+    metrics.record_tick_attempt()
+    try:
+        equity = fetch_futures_usdt_equity(ex)
+        session.on_tick(current_usdt_equity=equity)
+        session.warn_if_drawdown_near_limit(current_equity=equity)
+        if rule_strategy is not None:
+            ohlcv = ex.fetch_ohlcv(
+                settings.symbol,
+                timeframe=settings.timeframe,
+                limit=_ohlcv_fetch_limit(settings),
+            )
+            signal = rule_strategy.on_bar(len(ohlcv) - 1, ohlcv)
+            logger.info("strategy signal: %s", signal.model_dump())
+        else:
+            account_ctx = format_account_context(ex, settings, account_hedged=account_hedged)
+            prompt = _klines_prompt(ex, settings, account_context=account_ctx)
+            t0 = time.perf_counter()
+            try:
+                signal = llm_decide(settings, prompt)
+                metrics.record_llm_success(time.perf_counter() - t0)
+            except Exception:
+                metrics.record_llm_failure()
+                raise
+            logger.info("LLM signal: %s", signal.model_dump())
+
+        decision = assess_signal(signal, settings.min_confidence)
+        if not decision.allowed:
+            logger.warning("risk blocked: %s", decision.message)
+            metrics.record_tick_risk_blocked()
+            return
+
+        gate = session.block_reason_for(signal.action, current_equity=equity)
+        if gate:
+            logger.warning("session risk blocked: %s", gate)
+            metrics.record_tick_risk_blocked()
+            return
+
+        execute_signal(
+            ex,
+            settings,
+            signal,
+            account_hedged=account_hedged,
+            session=session,
+            on_real_order=metrics.record_real_order,
+        )
+    except Exception as e:
+        metrics.record_tick_failed(repr(e))
+        raise
+    else:
+        metrics.record_tick_completed()
+
+
+def run_loop(settings: Settings, *, once: bool = False) -> None:
+    if settings.observability_port > 0:
+        start_observability_background(settings.observability_host, settings.observability_port)
+    ex = build_exchange(settings)
+    ex.load_markets()
+    try:
+        account_hedged = resolve_account_hedged(ex, settings)
+    except ValueError as e:
+        raise SystemExit(str(e)) from e
+    session = SessionRisk(settings)
+    rule_strategy: Strategy | None = None
+    if settings.signal_source == "strategy":
+        rule_strategy = build_live_strategy(settings)
+
+    logger.info(
+        "markets loaded; signal_source=%s symbol=%s testnet=%s dry_run=%s min_confidence=%s once=%s hedged=%s "
+        "openai_timeout=%ss exchange_timeout=%sms max_trades/day=%s max_daily_loss=%s warn_ratio=%s "
+        "observability=%s:%s strategy=%s",
+        settings.signal_source,
+        settings.symbol,
+        settings.binance_testnet,
+        settings.dry_run,
+        settings.min_confidence,
+        once,
+        account_hedged,
+        settings.openai_timeout_sec,
+        settings.exchange_timeout_ms,
+        settings.max_trades_per_day,
+        settings.max_daily_loss_usdt,
+        settings.daily_loss_warn_ratio,
+        settings.observability_host,
+        settings.observability_port,
+        f"{settings.strategy_name}({settings.strategy_fast},{settings.strategy_slow})"
+        if rule_strategy is not None
+        else "n/a",
+    )
+
+    while True:
+        if not once:
+            _sleep_until_next_minute_close()
+        try:
+            _tick(
+                ex,
+                settings,
+                account_hedged=account_hedged,
+                session=session,
+                rule_strategy=rule_strategy,
+            )
+        except Exception:
+            logger.exception("tick failed")
+
+        if once:
+            break
+        time.sleep(1.0)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Binance USDT-M perpetual bot: LLM or rule-based (SMA cross) signals → risk → execution.",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Run a single tick (no wait for next minute close) and exit.",
+    )
+    parser.add_argument(
+        "--smoke",
+        action="store_true",
+        help="Load settings and validate imports, then exit (no API calls to OpenAI/Binance).",
+    )
+    args = parser.parse_args()
+
+    if args.smoke:
+        settings = Settings()
+        logger.info("smoke: settings OK symbol=%s", settings.symbol)
+        __import__("futures_llm_bot.execution", fromlist=["build_exchange"])
+        __import__("futures_llm_bot.positions", fromlist=["fetch_position_legs"])
+        __import__("futures_llm_bot.llm_strategy", fromlist=["llm_decide"])
+        __import__("futures_llm_bot.strategy_factory", fromlist=["build_live_strategy"])
+        logger.info("smoke: imports OK")
+        return
+
+    settings = Settings()
+    if settings.signal_source == "llm" and not settings.openai_api_key:
+        raise SystemExit("OPENAI_API_KEY is required when SIGNAL_SOURCE=llm")
+    if not settings.dry_run and (not settings.binance_api_key or not settings.binance_api_secret):
+        raise SystemExit("BINANCE_API_KEY/SECRET required when DRY_RUN=false")
+
+    try:
+        run_loop(settings, once=args.once)
+    except KeyboardInterrupt:
+        logger.info("stopped by user")
+        sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

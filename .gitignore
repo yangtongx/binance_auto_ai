@@ -1,0 +1,35 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+.lock-venv/
+
+# Environment and secrets
+.env
+.env.*.local
+.futures_llm_bot_state.json
+
+# Packaging / tooling
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Test / type / IDE
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.idea/
+
+# OS
+Thumbs.db
+Desktop.ini
