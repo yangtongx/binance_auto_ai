@@ -13,6 +13,7 @@ ENV/
 # Environment and secrets
 .env
 .env.*.local
+secrets/
 .futures_llm_bot_state.json
 
 # Packaging / tooling

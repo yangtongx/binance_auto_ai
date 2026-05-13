@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from pathlib import Path
 from urllib.parse import urlparse
@@ -11,6 +12,23 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$")
+
+# Docker secrets convention: if XXX_FILE is set, read the secret from that file.
+_DOCKER_SECRET_MAP = {
+    "BINANCE_API_KEY": "BINANCE_API_KEY_FILE",
+    "BINANCE_API_SECRET": "BINANCE_API_SECRET_FILE",
+    "OPENAI_API_KEY": "OPENAI_API_KEY_FILE",
+}
+
+
+def _load_docker_secrets() -> None:
+    for env_key, file_key in _DOCKER_SECRET_MAP.items():
+        if env_key not in os.environ and file_key in os.environ:
+            path = os.environ[file_key]
+            os.environ[env_key] = Path(path).read_text().strip()
+
+
+_load_docker_secrets()
 
 
 class Settings(BaseSettings):
