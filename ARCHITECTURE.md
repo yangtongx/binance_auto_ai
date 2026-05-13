@@ -52,6 +52,7 @@ flowchart LR
 
 ## Backtest (route 1: rules + history)
 
+
 - **`backtest/engine.py`**: bar walk, **close-to-close** fills, fee on traded notional (`fee_bps`), equity ≈ `cash + signed_position * close` (teaching linear-perp approximation).
 - **`backtest/strategies.py`**: **`SMACrossStrategy`**, **`RsiThresholdStrategy`**, **`MacdCrossStrategy`**, **`BollingerBandCrossStrategy`** → **`LLMSignal`**.
 - **`backtest/data.py`**: `load_ohlcv_csv`, `fetch_ohlcv_ccxt`.
