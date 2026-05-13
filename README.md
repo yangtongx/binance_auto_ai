@@ -74,6 +74,26 @@ Without `pip install -e .`, set **`PYTHONPATH=src`** before `python -m futures_l
 
 ---
 
+## Docker (Tencent CNB / Kubernetes / container hosts)
+
+The repo includes a **`Dockerfile`**. **Do not** put API keys in the image or Git: configure **`BINANCE_API_KEY`**, **`BINANCE_API_SECRET`**, **`OPENAI_API_KEY`**, **`OPENAI_BASE_URL`**, **`OPENAI_MODEL`**, and the rest as **runtime environment variables** (CNB/K8s secrets, platform “环境变量”, etc.).
+
+```bash
+docker build -t futures-llm-bot:local .
+docker run --rm \
+  -e BINANCE_API_KEY -e BINANCE_API_SECRET \
+  -e OPENAI_API_KEY -e OPENAI_BASE_URL=https://api.deepseek.com -e OPENAI_MODEL=deepseek-v4-pro \
+  -e SIGNAL_SOURCE=llm -e BINANCE_TESTNET=true -e DRY_RUN=true \
+  -v bot-state:/data \
+  futures-llm-bot:local
+```
+
+Volume **`/data`** persists session risk state (`STATE_FILE` defaults to `/data/.futures_llm_bot_state.json` in the image). Use **`futures-llm-real-pnl`** / **`futures-llm-backtest`** in CI or a sidecar only if you add those to the image (`pip install` already includes entry points).
+
+On **[cnb.cool](https://cnb.cool)** (or Tencent TKE): connect this repository, build from the `Dockerfile`, push to your registry, run the container with secrets injected in the console — **never** commit `.env` or keys.
+
+---
+
 ## Configuration
 
 Copy **`.env.example`** → **`.env`** (loaded from repo root). Important groups:

@@ -74,6 +74,26 @@ copy .env.example .env   # Windows；Unix 用 cp
 
 ---
 
+## Docker（腾讯云 CNB / K8s / 容器）
+
+仓库根目录提供 **`Dockerfile`**。**禁止**把密钥写进镜像或 Git：在 **运行时环境变量** 或平台「密钥 / Secret」中配置 **`BINANCE_API_KEY`**、**`BINANCE_API_SECRET`**、**`OPENAI_API_KEY`**、**`OPENAI_BASE_URL`**、**`OPENAI_MODEL`** 等（与 `.env.example` 同名即可）。
+
+```bash
+docker build -t futures-llm-bot:local .
+docker run --rm \
+  -e BINANCE_API_KEY -e BINANCE_API_SECRET \
+  -e OPENAI_API_KEY -e OPENAI_BASE_URL=https://api.deepseek.com -e OPENAI_MODEL=deepseek-v4-pro \
+  -e SIGNAL_SOURCE=llm -e BINANCE_TESTNET=true -e DRY_RUN=true \
+  -v bot-state:/data \
+  futures-llm-bot:local
+```
+
+**`/data`** 卷用于持久化 **`STATE_FILE`**（镜像内默认为 `/data/.futures_llm_bot_state.json`）。
+
+在 **[cnb.cool](https://cnb.cool)**：绑定仓库 **https://cnb.cool/xiaoYang-2026/futures_llm_bot** ，构建指向本 `Dockerfile`，镜像推送到你的仓库后，在运行环境中注入上述变量；**切勿**把 `.env` 或真实 Key 提交到代码库。
+
+---
+
 ## 配置说明
 
 将 **`.env.example`** 复制为 **`.env`**（从仓库根目录加载）。主要分组：
