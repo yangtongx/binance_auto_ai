@@ -12,17 +12,21 @@ from futures_llm_bot.backtest.strategies import (
     IchimokuCloudStrategy,
     MacdCrossStrategy,
     RsiThresholdStrategy,
+    RsiVolAdaptiveStrategy,
     SMACrossStrategy,
     StochasticCrossStrategy,
     VolumeProfileStrategy,
 )
+from futures_llm_bot.composite_strategy import CompositeStrategy
 from futures_llm_bot.config import Settings
 from futures_llm_bot.ml_signal_strategy import build_ml_strategy
+from futures_llm_bot.rl_signal_strategy import load_sb3_strategy
 
 _STRATEGY_NAMES = frozenset(
     {
         "sma_cross",
         "rsi",
+        "rsi_adaptive",
         "macd",
         "bollinger",
         "bb",
@@ -37,8 +41,26 @@ _STRATEGY_NAMES = frozenset(
         "atr_breakout",
         "atr",
         "ml",
+        "composite",
+        "rl_sb3",
     }
 )
+
+COMPOSITE_CHILD_STRATEGIES: frozenset[str] = frozenset(_STRATEGY_NAMES - {"composite"})
+
+
+def parse_composite_members(raw: str) -> list[str]:
+    return [x.strip().lower() for x in raw.split(",") if x.strip()]
+
+
+def _parse_composite_weights(raw: str, n: int) -> list[float] | None:
+    s = raw.strip()
+    if not s:
+        return None
+    parts = [float(x.strip()) for x in s.split(",") if x.strip()]
+    if len(parts) != n:
+        raise ValueError(f"COMPOSITE_WEIGHTS must have {n} comma-separated floats")
+    return parts
 
 
 def min_bars_for_backtest(
@@ -55,9 +77,42 @@ def min_bars_for_backtest(
     stoch_k: int = 14,
     stoch_d: int = 3,
     atr_period: int = 14,
+    vol_window: int = 20,
+    vol_ref_window: int = 100,
+    rl_window: int = 32,
+    composite_members: str = "",
 ) -> int:
     """Minimum OHLCV length for warmup (matches live ``strategy_min_ohlcv_bars`` logic)."""
     key = name.strip().lower()
+    if key == "composite":
+        mems = parse_composite_members(composite_members)
+        if not mems:
+            return 120
+        return max(
+            min_bars_for_backtest(
+                m,
+                slow=slow,
+                rsi_period=rsi_period,
+                macd_signal=macd_signal,
+                bb_period=bb_period,
+                senkou_b=senkou_b,
+                fib_lookback=fib_lookback,
+                vp_bars=vp_bars,
+                ml_window=ml_window,
+                stoch_k=stoch_k,
+                stoch_d=stoch_d,
+                atr_period=atr_period,
+                vol_window=vol_window,
+                vol_ref_window=vol_ref_window,
+                rl_window=rl_window,
+                composite_members="",
+            )
+            for m in mems
+        )
+    if key == "rsi_adaptive":
+        return vol_window + vol_ref_window + rsi_period + 10
+    if key == "rl_sb3":
+        return rl_window + 5
     if key == "sma_cross":
         return slow + 5
     if key == "rsi":
@@ -96,6 +151,10 @@ def strategy_min_ohlcv_bars(settings: Settings) -> int:
         stoch_k=settings.strategy_stoch_k,
         stoch_d=settings.strategy_stoch_d,
         atr_period=settings.strategy_atr_period,
+        vol_window=settings.strategy_vol_window,
+        vol_ref_window=settings.strategy_vol_ref_window,
+        rl_window=settings.rl_window,
+        composite_members=settings.composite_members,
     )
 
 
@@ -131,8 +190,87 @@ def build_strategy_for_backtest(
     ml_torch_arch: str = "mlp",
     ml_hot_reload: bool = False,
     ml_hot_reload_interval_sec: float = 30.0,
+    composite_members: str = "",
+    composite_mode: str = "majority",
+    composite_weights: str = "",
+    vol_window: int = 20,
+    vol_ref_window: int = 100,
+    vol_sensitivity: float = 10.0,
+    rl_model_path: str | Path = "",
+    rl_window: int = 32,
 ) -> Strategy:
     key = name.strip().lower()
+    if key == "composite":
+        mems = parse_composite_members(composite_members)
+        if not mems:
+            raise ValueError("composite strategy requires non-empty composite_members")
+        mode = composite_mode.strip().lower()
+        w: list[float] | None = _parse_composite_weights(composite_weights, len(mems))
+        if mode == "weighted" and w is None:
+            w = [1.0] * len(mems)
+        kids: list[Strategy] = []
+        for m in mems:
+            kids.append(
+                build_strategy_for_backtest(
+                    m,
+                    fast=fast,
+                    slow=slow,
+                    size_pct=size_pct,
+                    confidence=confidence,
+                    rsi_period=rsi_period,
+                    rsi_oversold=rsi_oversold,
+                    rsi_overbought=rsi_overbought,
+                    macd_signal=macd_signal,
+                    bb_period=bb_period,
+                    bb_std=bb_std,
+                    ichimoku_tenkan=ichimoku_tenkan,
+                    ichimoku_kijun=ichimoku_kijun,
+                    ichimoku_senkou_b=ichimoku_senkou_b,
+                    fib_lookback=fib_lookback,
+                    fib_level=fib_level,
+                    vp_bars=vp_bars,
+                    vp_bins=vp_bins,
+                    stoch_k=stoch_k,
+                    stoch_d=stoch_d,
+                    stoch_oversold=stoch_oversold,
+                    stoch_overbought=stoch_overbought,
+                    atr_period=atr_period,
+                    atr_mult=atr_mult,
+                    ml_backend=ml_backend,
+                    ml_model_path=ml_model_path,
+                    ml_window=ml_window,
+                    ml_torch_arch=ml_torch_arch,
+                    ml_hot_reload=ml_hot_reload,
+                    ml_hot_reload_interval_sec=ml_hot_reload_interval_sec,
+                    composite_members="",
+                    composite_mode="majority",
+                    composite_weights="",
+                    vol_window=vol_window,
+                    vol_ref_window=vol_ref_window,
+                    vol_sensitivity=vol_sensitivity,
+                    rl_model_path=rl_model_path,
+                    rl_window=rl_window,
+                )
+            )
+        return CompositeStrategy(kids, mode, w)
+    if key == "rsi_adaptive":
+        return RsiVolAdaptiveStrategy(
+            rsi_period,
+            oversold=rsi_oversold,
+            overbought=rsi_overbought,
+            vol_window=vol_window,
+            vol_ref_window=vol_ref_window,
+            vol_sensitivity=vol_sensitivity,
+            size_pct=size_pct,
+            confidence=confidence,
+        )
+    if key == "rl_sb3":
+        return load_sb3_strategy(
+            rl_model_path,
+            window=rl_window,
+            size_pct=size_pct,
+            confidence=confidence,
+        )
     if key == "sma_cross":
         return SMACrossStrategy(fast=fast, slow=slow, size_pct=size_pct, confidence=confidence)
     if key == "rsi":
@@ -244,4 +382,12 @@ def build_live_strategy(settings: Settings) -> Strategy:
         ml_torch_arch=settings.ml_torch_arch,
         ml_hot_reload=settings.ml_hot_reload,
         ml_hot_reload_interval_sec=settings.ml_hot_reload_interval_sec,
+        composite_members=settings.composite_members,
+        composite_mode=settings.composite_mode,
+        composite_weights=settings.composite_weights,
+        vol_window=settings.strategy_vol_window,
+        vol_ref_window=settings.strategy_vol_ref_window,
+        vol_sensitivity=settings.strategy_vol_sensitivity,
+        rl_model_path=settings.rl_model_path,
+        rl_window=settings.rl_window,
     )

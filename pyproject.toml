@@ -23,6 +23,7 @@ dev = ["pytest>=8.0"]
 realtime = ["websocket-client>=1.7.0"]
 ml-torch = ["torch>=2.1.0"]
 ml-tf = ["tensorflow>=2.15.0"]
+rl = ["stable-baselines3>=2.3.0", "gymnasium>=0.29"]
 
 [project.scripts]
 futures-llm-bot = "futures_llm_bot.cli:main"

@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _STRATEGIES = (
     "sma_cross",
     "rsi",
+    "rsi_adaptive",
     "macd",
     "bollinger",
     "bb",
@@ -32,6 +33,8 @@ _STRATEGIES = (
     "atr_breakout",
     "atr",
     "ml",
+    "composite",
+    "rl_sb3",
 )
 
 
@@ -70,11 +73,36 @@ def main() -> None:
     p.add_argument("--stoch-overbought", type=float, default=80.0)
     p.add_argument("--atr-period", type=int, default=14)
     p.add_argument("--atr-mult", type=float, default=1.5)
+    p.add_argument(
+        "--composite-members",
+        default="",
+        help="For --strategy composite: comma-separated strategy ids (e.g. rsi,macd)",
+    )
+    p.add_argument(
+        "--composite-mode",
+        default="majority",
+        choices=("majority", "weighted", "unanimous", "first"),
+    )
+    p.add_argument(
+        "--composite-weights",
+        default="",
+        help="Optional comma weights for composite weighted mode (one per member)",
+    )
+    p.add_argument("--vol-window", type=int, default=20, help="rsi_adaptive rolling vol length")
+    p.add_argument("--vol-ref-window", type=int, default=100, help="rsi_adaptive vol reference median window")
+    p.add_argument("--vol-sensitivity", type=float, default=10.0, help="rsi_adaptive RSI threshold shift scale")
+    p.add_argument("--rl-model", type=Path, help="Stable-Baselines3 zip for --strategy rl_sb3")
+    p.add_argument("--rl-window", type=int, default=32)
     p.add_argument("--cash", type=float, default=10_000.0)
     p.add_argument("--max-notional", type=float, default=1_000.0)
     p.add_argument("--fee-bps", type=float, default=4.0)
     p.add_argument("--json-out", type=Path, help="Write summary JSON")
     args = p.parse_args()
+
+    if args.strategy == "composite" and not args.composite_members.strip():
+        raise SystemExit("--composite-members is required when --strategy composite")
+    if args.strategy == "rl_sb3" and not args.rl_model:
+        raise SystemExit("--rl-model is required when --strategy rl_sb3")
 
     need = min_bars_for_backtest(
         args.strategy,
@@ -89,6 +117,10 @@ def main() -> None:
         stoch_k=args.stoch_k,
         stoch_d=args.stoch_d,
         atr_period=args.atr_period,
+        vol_window=args.vol_window,
+        vol_ref_window=args.vol_ref_window,
+        rl_window=args.rl_window,
+        composite_members=args.composite_members,
     )
 
     if args.fetch:
@@ -134,6 +166,14 @@ def main() -> None:
         stoch_overbought=args.stoch_overbought,
         atr_period=args.atr_period,
         atr_mult=args.atr_mult,
+        composite_members=args.composite_members,
+        composite_mode=args.composite_mode,
+        composite_weights=args.composite_weights,
+        vol_window=args.vol_window,
+        vol_ref_window=args.vol_ref_window,
+        vol_sensitivity=args.vol_sensitivity,
+        rl_model_path=str(args.rl_model) if args.rl_model else "",
+        rl_window=args.rl_window,
     )
     res = run_backtest(
         ohlcv,

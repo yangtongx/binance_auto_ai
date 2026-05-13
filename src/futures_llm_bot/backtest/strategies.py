@@ -17,6 +17,7 @@ from futures_llm_bot.backtest.indicators import (
     stochastic_cross_state,
     volume_profile_poc,
 )
+from futures_llm_bot.risk_metrics import rolling_median_realized_vol
 from futures_llm_bot.schemas import Action, LLMSignal
 
 
@@ -114,6 +115,72 @@ class RsiThresholdStrategy:
                 reason=f"rsi>{self._ob:.0f}",
             )
         return LLMSignal(action=Action.HOLD, size_pct=0.0, confidence=self._confidence, reason="rsi mid")
+
+
+class RsiVolAdaptiveStrategy:
+    """RSI mean-reversion with **oversold/overbought bands** widened or tightened from realized vol."""
+
+    def __init__(
+        self,
+        period: int = 14,
+        *,
+        oversold: float = 30.0,
+        overbought: float = 70.0,
+        vol_window: int = 20,
+        vol_ref_window: int = 100,
+        vol_sensitivity: float = 10.0,
+        size_pct: float = 100.0,
+        confidence: float = 0.8,
+    ) -> None:
+        if period < 2:
+            raise ValueError("RSI period must be >= 2")
+        if not 0.0 < oversold < overbought < 100.0:
+            raise ValueError("need 0 < oversold < overbought < 100")
+        if vol_window < 3 or vol_ref_window < 5:
+            raise ValueError("vol windows too small")
+        if vol_sensitivity <= 0:
+            raise ValueError("vol_sensitivity must be > 0")
+        self._base_os = oversold
+        self._base_ob = overbought
+        self._vw = vol_window
+        self._rw = vol_ref_window
+        self._sens = vol_sensitivity
+        self._size_pct = size_pct
+        self._confidence = confidence
+        self._stream = RSIWilderStream(period)
+
+    def reset(self) -> None:
+        self._stream.reset()
+
+    def on_bar(self, _i: int, ohlcv: list[list[float]]) -> LLMSignal:
+        closes = _closes_list(ohlcv)
+        self._stream.ensure(closes)
+        rsi = self._stream.rsi()
+        cur_s, ref_s = rolling_median_realized_vol(closes, vol_window=self._vw, ref_window=self._rw)
+        if rsi is None or cur_s != cur_s or ref_s != ref_s:
+            return LLMSignal(action=Action.HOLD, size_pct=0.0, confidence=self._confidence, reason="rsi_vol:warmup")
+        factor = cur_s / (ref_s + 1e-12)
+        factor = float(np.clip(factor, 0.5, 2.0))
+        adj = (factor - 1.0) * self._sens
+        os_eff = float(np.clip(self._base_os + adj, 10.0, 48.0))
+        ob_eff = float(np.clip(self._base_ob - adj, 52.0, 90.0))
+        if not (os_eff + 1.0 < ob_eff):
+            os_eff, ob_eff = self._base_os, self._base_ob
+        if rsi < os_eff:
+            return LLMSignal(
+                action=Action.LONG,
+                size_pct=self._size_pct,
+                confidence=self._confidence,
+                reason=f"rsi<{os_eff:.1f}(vol)",
+            )
+        if rsi > ob_eff:
+            return LLMSignal(
+                action=Action.SHORT,
+                size_pct=self._size_pct,
+                confidence=self._confidence,
+                reason=f"rsi>{ob_eff:.1f}(vol)",
+            )
+        return LLMSignal(action=Action.HOLD, size_pct=0.0, confidence=self._confidence, reason="rsi mid(vol)")
 
 
 class MacdCrossStrategy:

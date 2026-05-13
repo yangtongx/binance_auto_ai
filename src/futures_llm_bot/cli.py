@@ -22,11 +22,15 @@ from futures_llm_bot.llm_strategy import llm_decide
 from futures_llm_bot.strategy_factory import build_live_strategy, strategy_min_ohlcv_bars
 from futures_llm_bot.observability import start_observability_background
 from futures_llm_bot.risk import assess_signal
+from futures_llm_bot.risk_metrics import aligned_log_return_correlation, var_tail_block_reason_from_ohlcv
+from futures_llm_bot.schemas import Action
 from futures_llm_bot.session_risk import SessionRisk
 from futures_llm_bot.telegram_notify import send_telegram_trade_signal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+_corr_log_counter = 0
 
 
 def _strategy_log_label(settings: Settings) -> str:
@@ -52,6 +56,12 @@ def _strategy_log_label(settings: Settings) -> str:
         return f"{n}(p={settings.strategy_atr_period},m={settings.strategy_atr_mult})"
     if n == "ml":
         return f"{n}({settings.ml_backend},{settings.ml_torch_arch},w={settings.strategy_ml_window})"
+    if n == "composite":
+        return f"composite({settings.composite_mode}:{settings.composite_members})"
+    if n == "rsi_adaptive":
+        return f"rsi_adaptive(vol {settings.strategy_vol_window}/{settings.strategy_vol_ref_window})"
+    if n == "rl_sb3":
+        return f"rl_sb3(w={settings.rl_window})"
     return n
 
 
@@ -123,6 +133,41 @@ def _tick(
                 )
             signal = rule_strategy.on_bar(len(ohlcv) - 1, ohlcv)
             logger.info("strategy signal: %s", signal.model_dump())
+
+            if (
+                settings.risk_var_window > 0
+                and settings.risk_var_block
+                and signal.action in (Action.LONG, Action.SHORT)
+            ):
+                vmsg = var_tail_block_reason_from_ohlcv(
+                    ohlcv,
+                    window=settings.risk_var_window,
+                    alpha=settings.risk_var_alpha,
+                    tail_limit=settings.risk_var_tail_limit,
+                )
+                if vmsg:
+                    logger.warning("risk VaR gate: %s", vmsg)
+                    metrics.record_tick_risk_blocked()
+                    return
+
+            aux = settings.risk_corr_aux_symbol.strip()
+            if aux and rule_strategy is not None:
+                global _corr_log_counter
+                _corr_log_counter += 1
+                if _corr_log_counter % settings.risk_corr_log_every == 0:
+                    try:
+                        ob = ex.fetch_ohlcv(aux, timeframe=settings.timeframe, limit=min(500, len(ohlcv)))
+                        rho = aligned_log_return_correlation(ohlcv, ob)
+                        if rho == rho:
+                            logger.info(
+                                "risk log-return correlation %s vs %s (tail-aligned): %.4f",
+                                settings.symbol,
+                                aux,
+                                rho,
+                            )
+                    except Exception as e:
+                        logger.debug("aux correlation fetch failed: %s", e)
+
         else:
             account_ctx = format_account_context(ex, settings, account_hedged=account_hedged)
             prompt = _klines_prompt(ex, settings, account_context=account_ctx)

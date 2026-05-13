@@ -96,6 +96,26 @@ class Settings(BaseSettings):
         validation_alias="ML_HOT_RELOAD_INTERVAL_SEC",
     )
 
+    composite_members: str = Field(default="", validation_alias="COMPOSITE_MEMBERS")
+    composite_mode: str = Field(default="majority", validation_alias="COMPOSITE_MODE")
+    composite_weights: str = Field(default="", validation_alias="COMPOSITE_WEIGHTS")
+
+    strategy_vol_window: int = Field(default=20, ge=3, le=500, validation_alias="STRATEGY_VOL_WINDOW")
+    strategy_vol_ref_window: int = Field(default=100, ge=5, le=5000, validation_alias="STRATEGY_VOL_REF_WINDOW")
+    strategy_vol_sensitivity: float = Field(
+        default=10.0, gt=0.0, le=50.0, validation_alias="STRATEGY_VOL_SENSITIVITY"
+    )
+
+    rl_model_path: str = Field(default="", validation_alias="RL_MODEL_PATH")
+    rl_window: int = Field(default=32, ge=8, le=500, validation_alias="RL_WINDOW")
+
+    risk_var_window: int = Field(default=0, ge=0, le=5000, validation_alias="RISK_VAR_WINDOW")
+    risk_var_alpha: float = Field(default=0.05, gt=0.0, lt=0.5, validation_alias="RISK_VAR_ALPHA")
+    risk_var_block: bool = Field(default=False, validation_alias="RISK_VAR_BLOCK")
+    risk_var_tail_limit: float = Field(default=-0.02, validation_alias="RISK_VAR_TAIL_LIMIT")
+    risk_corr_aux_symbol: str = Field(default="", validation_alias="RISK_CORR_AUX_SYMBOL")
+    risk_corr_log_every: int = Field(default=20, ge=1, le=10_000, validation_alias="RISK_CORR_LOG_EVERY")
+
     telegram_bot_token: str = Field(default="", validation_alias="TELEGRAM_BOT_TOKEN")
     telegram_chat_id: str = Field(default="", validation_alias="TELEGRAM_CHAT_ID")
     telegram_template: str = Field(default="default", validation_alias="TELEGRAM_TEMPLATE")
@@ -170,6 +190,23 @@ class Settings(BaseSettings):
     def _telegram_parse_mode_in(cls, v: object) -> str:
         return str(v).strip()
 
+    @field_validator("composite_mode", mode="before")
+    @classmethod
+    def _composite_mode_norm(cls, v: object) -> str:
+        return str(v).strip().lower()
+
+    @field_validator("risk_corr_aux_symbol", mode="before")
+    @classmethod
+    def _risk_corr_symbol(cls, v: object) -> str:
+        s = str(v).strip()
+        if not s:
+            return ""
+        if not _SYMBOL_RE.match(s):
+            raise ValueError(
+                "RISK_CORR_AUX_SYMBOL must match CCXT linear perpetual form (e.g. ETH/USDT:USDT) or be empty"
+            )
+        return s
+
     @model_validator(mode="after")
     def _normalize_telegram_parse_mode(self) -> Settings:
         pm = self.telegram_parse_mode
@@ -234,10 +271,39 @@ class Settings(BaseSettings):
                     raise ValueError("ML_TORCH_ARCH must be mlp|lstm|transformer for PyTorch backend")
             elif arch not in ("mlp",):
                 raise ValueError("ML_TORCH_ARCH must be mlp when using TensorFlow backend (sequence models: use torch)")
+        elif name == "rsi_adaptive":
+            if self.strategy_rsi_oversold >= self.strategy_rsi_overbought:
+                raise ValueError("STRATEGY_RSI_OVERSOLD must be < STRATEGY_RSI_OVERBOUGHT")
+        elif name == "rl_sb3":
+            if not self.rl_model_path.strip():
+                raise ValueError("RL_MODEL_PATH is required when STRATEGY_NAME=rl_sb3")
+        elif name == "composite":
+            from futures_llm_bot.strategy_factory import COMPOSITE_CHILD_STRATEGIES, parse_composite_members
+
+            if self.composite_mode not in ("majority", "weighted", "unanimous", "first"):
+                raise ValueError("COMPOSITE_MODE must be majority|weighted|unanimous|first")
+            mems = parse_composite_members(self.composite_members)
+            if not mems:
+                raise ValueError("COMPOSITE_MEMBERS is required when STRATEGY_NAME=composite (comma-separated ids)")
+            if any(m == "composite" for m in mems):
+                raise ValueError("nested composite strategies are not supported")
+            for m in mems:
+                if m not in COMPOSITE_CHILD_STRATEGIES:
+                    raise ValueError(
+                        f"unknown composite member {m!r} (supported leaf strategies only, not 'composite')"
+                    )
+            if "ml" in mems and not self.ml_model_path.strip():
+                raise ValueError("ML_MODEL_PATH is required when COMPOSITE_MEMBERS includes ml")
+            if "rl_sb3" in mems and not self.rl_model_path.strip():
+                raise ValueError("RL_MODEL_PATH is required when COMPOSITE_MEMBERS includes rl_sb3")
+            if self.composite_mode == "weighted" and self.composite_weights.strip():
+                parts = [x.strip() for x in self.composite_weights.split(",") if x.strip()]
+                if len(parts) != len(mems):
+                    raise ValueError("COMPOSITE_WEIGHTS must have one float per composite member")
         else:
             allowed = (
-                "sma_cross|rsi|macd|bollinger|bb|ichimoku|ichi|fibonacci|fib|volume_profile|vp|"
-                "stochastic|stoch|atr_breakout|atr|ml"
+                "sma_cross|rsi|rsi_adaptive|macd|bollinger|bb|ichimoku|ichi|fibonacci|fib|volume_profile|vp|"
+                "stochastic|stoch|atr_breakout|atr|ml|composite|rl_sb3"
             )
             raise ValueError(f"Unknown STRATEGY_NAME={self.strategy_name!r} (supported: {allowed})")
         return self
