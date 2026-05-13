@@ -15,7 +15,24 @@ from futures_llm_bot.strategy_factory import build_strategy_for_backtest, min_ba
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-_STRATEGIES = ("sma_cross", "rsi", "macd", "bollinger", "bb")
+_STRATEGIES = (
+    "sma_cross",
+    "rsi",
+    "macd",
+    "bollinger",
+    "bb",
+    "ichimoku",
+    "ichi",
+    "fibonacci",
+    "fib",
+    "volume_profile",
+    "vp",
+    "stochastic",
+    "stoch",
+    "atr_breakout",
+    "atr",
+    "ml",
+)
 
 
 def main() -> None:
@@ -36,6 +53,23 @@ def main() -> None:
     p.add_argument("--macd-signal", type=int, default=9)
     p.add_argument("--bb-period", type=int, default=20)
     p.add_argument("--bb-std", type=float, default=2.0)
+    p.add_argument("--ichi-tenkan", type=int, default=9)
+    p.add_argument("--ichi-kijun", type=int, default=26)
+    p.add_argument("--ichi-senkou-b", type=int, default=52)
+    p.add_argument("--fib-lookback", type=int, default=50)
+    p.add_argument("--fib-level", default="0.618", choices=("0.382", "0.5", "0.618"))
+    p.add_argument("--vp-bars", type=int, default=48)
+    p.add_argument("--vp-bins", type=int, default=24)
+    p.add_argument("--ml-backend", default="torch", help="torch|tensorflow (with STRATEGY=ml)")
+    p.add_argument("--ml-model", type=Path, help="Model path (required for --strategy ml)")
+    p.add_argument("--ml-window", type=int, default=32)
+    p.add_argument("--ml-torch-arch", default="mlp", choices=("mlp", "lstm", "transformer"))
+    p.add_argument("--stoch-k", type=int, default=14)
+    p.add_argument("--stoch-d", type=int, default=3)
+    p.add_argument("--stoch-oversold", type=float, default=20.0)
+    p.add_argument("--stoch-overbought", type=float, default=80.0)
+    p.add_argument("--atr-period", type=int, default=14)
+    p.add_argument("--atr-mult", type=float, default=1.5)
     p.add_argument("--cash", type=float, default=10_000.0)
     p.add_argument("--max-notional", type=float, default=1_000.0)
     p.add_argument("--fee-bps", type=float, default=4.0)
@@ -48,6 +82,13 @@ def main() -> None:
         rsi_period=args.rsi_period,
         macd_signal=args.macd_signal,
         bb_period=args.bb_period,
+        senkou_b=args.ichi_senkou_b,
+        fib_lookback=args.fib_lookback,
+        vp_bars=args.vp_bars,
+        ml_window=args.ml_window,
+        stoch_k=args.stoch_k,
+        stoch_d=args.stoch_d,
+        atr_period=args.atr_period,
     )
 
     if args.fetch:
@@ -63,6 +104,9 @@ def main() -> None:
     if len(ohlcv) < need:
         raise SystemExit(f"need more bars (got {len(ohlcv)}, need>={need} for strategy={args.strategy})")
 
+    if args.strategy == "ml":
+        if not args.ml_model:
+            raise SystemExit("--ml-model is required when --strategy ml")
     strat = build_strategy_for_backtest(
         args.strategy,
         fast=args.fast,
@@ -73,6 +117,23 @@ def main() -> None:
         macd_signal=args.macd_signal,
         bb_period=args.bb_period,
         bb_std=args.bb_std,
+        ichimoku_tenkan=args.ichi_tenkan,
+        ichimoku_kijun=args.ichi_kijun,
+        ichimoku_senkou_b=args.ichi_senkou_b,
+        fib_lookback=args.fib_lookback,
+        fib_level=args.fib_level,
+        vp_bars=args.vp_bars,
+        vp_bins=args.vp_bins,
+        ml_backend=args.ml_backend,
+        ml_model_path=args.ml_model or "",
+        ml_window=args.ml_window,
+        ml_torch_arch=args.ml_torch_arch,
+        stoch_k=args.stoch_k,
+        stoch_d=args.stoch_d,
+        stoch_oversold=args.stoch_oversold,
+        stoch_overbought=args.stoch_overbought,
+        atr_period=args.atr_period,
+        atr_mult=args.atr_mult,
     )
     res = run_backtest(
         ohlcv,

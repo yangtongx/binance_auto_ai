@@ -26,10 +26,11 @@ flowchart LR
 ```
 
 1. **`cli`** waits for the next candle boundary (unless `--once`), then runs one **tick**.
-2. **Tick**: reads futures USDT balance and positions. If **`SIGNAL_SOURCE=strategy`**, fetches enough OHLCV for **`strategy_factory.build_live_strategy`** (same rule classes as **`futures-llm-backtest`**: **SMA cross**, **RSI**, **MACD**, **Bollinger**) and gets **`LLMSignal`** without the LLM. If **`SIGNAL_SOURCE=llm`**, builds a **prompt** (OHLCV + account context) and calls **`llm_strategy.llm_decide`** (with retries on transient API errors).
-3. **`risk.assess_signal`** gates confidence and size for directional trades (`flat`/`hold` exempt as before).
-4. **`session_risk`** enforces optional daily trade count and drawdown vs day-start equity (UTC); blocks new long/short only.
-5. **`execution`** branches on **one-way vs hedge** mode and places orders via **`order_utils.place_order`** (optional **`metrics.record_real_order`** callback on real submits).
+2. **Tick**: reads futures USDT balance and positions. Builds **OHLCV** from **`exchange.fetch_ohlcv`** or, when **`USE_WEBSOCKET=true`** (strategy mode, optional **`realtime`** extra), from **`binance_kline_ws.BinanceUsdMKlineBuffer`** (REST seed + **closed** kline frames; exponential backoff on disconnect; may fall back to REST if the deque is short). Then **`SIGNAL_SOURCE=strategy`** runs **`strategy_factory` → `on_bar` → `LLMSignal`**, or **`SIGNAL_SOURCE=llm`** runs **`llm_strategy.llm_decide`** on a prompt (with retries on transient API errors).
+3. After a signal is built, **`telegram_notify.send_telegram_trade_signal`** may send a **templated** Bot API message if tokens/chat id are configured (before risk gating).
+4. **`risk.assess_signal`** gates confidence and size for directional trades (`flat`/`hold` exempt as before).
+5. **`session_risk`** enforces optional daily trade count and drawdown vs day-start equity (UTC); blocks new long/short only.
+6. **`execution`** branches on **one-way vs hedge** mode and places orders via **`order_utils.place_order`** (optional **`metrics.record_real_order`** callback on real submits).
 
 ## Module layout
 
@@ -41,7 +42,10 @@ flowchart LR
 | `execution_oneway` / `execution_hedge` | Order sequencing and caps per mode. |
 | `execution` | `build_exchange`, `resolve_account_hedged`, `execute_signal` (orchestration). |
 | `llm_strategy` | System prompt, JSON extraction, OpenAI client with backoff (when `SIGNAL_SOURCE=llm`). |
-| `strategy_factory` | Builds rule strategies (`sma_cross`, `rsi`, `macd`, `bollinger` / `bb`) when `SIGNAL_SOURCE=strategy`. |
+| `strategy_factory` | Builds rule strategies (SMA, RSI, MACD, Bollinger, Ichimoku-style, Fib reclaim, volume-profile POC, Stochastic, ATR breakout, **ML**) when `SIGNAL_SOURCE=strategy`. |
+| `ml_signal_strategy` | Optional **TorchScript** / **Keras** on **log-returns**; **`ML_HOT_RELOAD`** rechecks `ML_MODEL_PATH` mtime on each bar (throttled) and reloads on change. |
+| `binance_kline_ws` | Optional WebSocket consumer: **`reconnect_delay_sec`**, thread **`WebSocketApp`** loop, in-memory OHLCV deque. |
+| `telegram_format` / `telegram_notify` | Named/custom **`str.format`** templates; JSON **`sendMessage`** + optional **`parse_mode`**. |
 | `real_pnl` / `real_pnl_cli` | Fetch Binance USDT-M `/fapi/v1/income`, aggregate REALIZED_PNL / FUNDING_FEE / COMMISSION (exchange-reported). |
 | `risk` | Per-signal min confidence and size checks. |
 | `session_risk` | Persisted UTC-day counters; `filelock` on state file for multi-process safety. |
@@ -54,11 +58,20 @@ flowchart LR
 
 
 - **`backtest/engine.py`**: bar walk, **close-to-close** fills, fee on traded notional (`fee_bps`), equity ≈ `cash + signed_position * close` (teaching linear-perp approximation).
-- **`backtest/strategies.py`**: **`SMACrossStrategy`**, **`RsiThresholdStrategy`**, **`MacdCrossStrategy`**, **`BollingerBandCrossStrategy`** → **`LLMSignal`**.
-- **`backtest/data.py`**: `load_ohlcv_csv`, `fetch_ohlcv_ccxt`.
-- **CLI**: `futures-llm-backtest --strategy sma_cross|rsi|macd|bollinger|bb --csv path` or `--fetch ...`.
+- **`backtest/indicators.py`**: NumPy **vectorized** series (SMA/EMA/RSI/MACD/Bollinger, Ichimoku helpers, Fib levels, volume-profile POC, **Stochastic**, **Wilder ATR**, true range) and **incremental streams** for core indicators (O(1) per bar when the close prefix grows by one row where implemented).
+- **`backtest/strategies.py`**: Rule classes above plus **Ichimoku**, **Fib**, **VP**, **Stochastic**, **ATR breakout** → **`LLMSignal`**.
+- **`backtest/data.py`**: `load_ohlcv_csv`, `fetch_ohlcv_ccxt`, **`fetch_ohlcv_ccxt_paginated`** (Binance `endTime` paging for long history).
+- **CLI**: `futures-llm-backtest --strategy … --csv path` or `--fetch …` (see `--help`; includes **ML** flags and extended params).
+- **`examples/train_ml_torch.py`**: Illustrative **MLP/LSTM/Mini-Transformer** training + **TorchScript** export (not production labels).
 
 This path is **deterministic** and suitable for walk-forward and parameter sweeps; it does **not** call the LLM.
+
+## ML lifecycle (live vs training)
+
+- **Training:** `examples/train_ml_torch.py` reads **`--csv`** or paginated **`--fetch`** (see **`backtest/data.fetch_ohlcv_ccxt_paginated`**), then exports TorchScript to a path you later assign to **`ML_MODEL_PATH`**.
+- **Live:** `ml_signal_strategy` loads at startup; with **`ML_HOT_RELOAD`**, it compares **`ML_MODEL_PATH`** `st_mtime_ns` every **`ML_HOT_RELOAD_INTERVAL_SEC`** and reloads on change (failed reload keeps prior weights).
+- **Backtest:** ML strategies default to **`ml_hot_reload=false`** so runs stay reproducible; CLI backtests do not consult live env hot-reload toggles unless you wire them explicitly.
+- **Scheduled deploy:** retrain jobs should write **`${MODEL_OUT}.tmp`** then **`mv`** onto **`ML_MODEL_PATH`** so readers see either the old or new file, never a partial write.
 
 ## Observability
 
@@ -79,7 +92,8 @@ Bind address is **`OBSERVABILITY_HOST`** (default `127.0.0.1`). Use a reverse pr
 
 - **New exchange**: Implement the same duck-typed surface as CCXT (`fetch_positions`, `create_order`, `market`, …) or add an adapter.
 - **Stricter risk**: Extend `session_risk` or add a layer before `execute_signal`.
-- **New strategy (backtest + live)**: Implement `reset` / `on_bar` → **`LLMSignal`**; register in **`strategy_factory.build_strategy_for_backtest`** and **`STRATEGY_NAME`**.
+- **New strategy (backtest + live)**: Implement `reset` / `on_bar` → **`LLMSignal`**; register in **`strategy_factory.build_strategy_for_backtest`**, **`min_bars_for_backtest`**, **`Settings`** validation, and **`futures-llm-backtest`** choices/args.
+- **ML models**: Train offline; match **input rank** (`mlp` vs `lstm`/`transformer`) and **3-class** head to **`ml_signal_strategy`**; export TorchScript with **`torch.jit.trace`** (or compatible).
 - **Alerting**: Poll `/health` or scrape `/metrics`; wire to PagerDuty/Slack outside this repo (e.g. Prometheus `alertmanager`, or a tiny cron hitting `/health`).
 - **Higher-frequency / multi-symbol / async IO**: Would need **`ccxt.async_support`**, per-symbol state, and scheduling; not in the current single-pair sync loop.
 - **Web dashboard**: Serve or proxy **`/metrics` + `/health`** with Grafana or a static page; optional small FastAPI app alongside the bot.

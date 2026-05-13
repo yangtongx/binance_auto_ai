@@ -64,6 +64,49 @@ class Settings(BaseSettings):
     strategy_bb_period: int = Field(default=20, ge=3, le=1500, validation_alias="STRATEGY_BB_PERIOD")
     strategy_bb_std: float = Field(default=2.0, gt=0.0, le=10.0, validation_alias="STRATEGY_BB_STD")
 
+    strategy_ichimoku_tenkan: int = Field(default=9, ge=2, le=200, validation_alias="STRATEGY_ICHIMOKU_TENKAN")
+    strategy_ichimoku_kijun: int = Field(default=26, ge=3, le=500, validation_alias="STRATEGY_ICHIMOKU_KIJUN")
+    strategy_ichimoku_senkou_b: int = Field(default=52, ge=4, le=1500, validation_alias="STRATEGY_ICHIMOKU_SENKOU_B")
+
+    strategy_fib_lookback: int = Field(default=50, ge=10, le=5000, validation_alias="STRATEGY_FIB_LOOKBACK")
+    strategy_fib_level: str = Field(default="0.618", validation_alias="STRATEGY_FIB_LEVEL")
+
+    strategy_vp_bars: int = Field(default=48, ge=10, le=5000, validation_alias="STRATEGY_VP_BARS")
+    strategy_vp_bins: int = Field(default=24, ge=4, le=500, validation_alias="STRATEGY_VP_BINS")
+
+    strategy_stoch_k: int = Field(default=14, ge=2, le=200, validation_alias="STRATEGY_STOCH_K")
+    strategy_stoch_d: int = Field(default=3, ge=1, le=100, validation_alias="STRATEGY_STOCH_D")
+    strategy_stoch_oversold: float = Field(default=20.0, gt=0.0, lt=100.0, validation_alias="STRATEGY_STOCH_OVERSOLD")
+    strategy_stoch_overbought: float = Field(
+        default=80.0, gt=0.0, lt=100.0, validation_alias="STRATEGY_STOCH_OVERBOUGHT"
+    )
+
+    strategy_atr_period: int = Field(default=14, ge=2, le=500, validation_alias="STRATEGY_ATR_PERIOD")
+    strategy_atr_mult: float = Field(default=1.5, gt=0.0, le=20.0, validation_alias="STRATEGY_ATR_MULT")
+
+    ml_backend: str = Field(default="", validation_alias="ML_BACKEND")
+    ml_model_path: str = Field(default="", validation_alias="ML_MODEL_PATH")
+    strategy_ml_window: int = Field(default=32, ge=8, le=500, validation_alias="STRATEGY_ML_WINDOW")
+    ml_torch_arch: str = Field(default="mlp", validation_alias="ML_TORCH_ARCH")
+    ml_hot_reload: bool = Field(default=True, validation_alias="ML_HOT_RELOAD")
+    ml_hot_reload_interval_sec: float = Field(
+        default=30.0,
+        ge=1.0,
+        le=3600.0,
+        validation_alias="ML_HOT_RELOAD_INTERVAL_SEC",
+    )
+
+    telegram_bot_token: str = Field(default="", validation_alias="TELEGRAM_BOT_TOKEN")
+    telegram_chat_id: str = Field(default="", validation_alias="TELEGRAM_CHAT_ID")
+    telegram_template: str = Field(default="default", validation_alias="TELEGRAM_TEMPLATE")
+    telegram_message_template: str = Field(default="", validation_alias="TELEGRAM_MESSAGE_TEMPLATE")
+    telegram_parse_mode: str = Field(default="", validation_alias="TELEGRAM_PARSE_MODE")
+
+    use_websocket: bool = Field(default=False, validation_alias="USE_WEBSOCKET")
+    ws_reconnect_base_sec: float = Field(default=1.0, gt=0.0, le=120.0, validation_alias="WS_RECONNECT_BASE_SEC")
+    ws_reconnect_max_sec: float = Field(default=60.0, gt=0.0, le=3600.0, validation_alias="WS_RECONNECT_MAX_SEC")
+    ws_reconnect_jitter: float = Field(default=0.25, ge=0.0, le=1.0, validation_alias="WS_RECONNECT_JITTER")
+
     symbol: str = Field(default="BTC/USDT:USDT", validation_alias="SYMBOL")
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
@@ -112,6 +155,37 @@ class Settings(BaseSettings):
     def _normalize_lowercase_choice(cls, v: object) -> str:
         return str(v).strip().lower()
 
+    @field_validator("ml_backend", "strategy_fib_level", "ml_torch_arch", mode="before")
+    @classmethod
+    def _strip_optional_choice(cls, v: object) -> str:
+        return str(v).strip()
+
+    @field_validator("telegram_template", "telegram_message_template", mode="before")
+    @classmethod
+    def _telegram_template_raw(cls, v: object) -> str:
+        return str(v).strip()
+
+    @field_validator("telegram_parse_mode", mode="before")
+    @classmethod
+    def _telegram_parse_mode_in(cls, v: object) -> str:
+        return str(v).strip()
+
+    @model_validator(mode="after")
+    def _normalize_telegram_parse_mode(self) -> Settings:
+        pm = self.telegram_parse_mode
+        if not pm:
+            return self
+        u = pm.upper()
+        if u == "HTML":
+            object.__setattr__(self, "telegram_parse_mode", "HTML")
+        elif u == "MARKDOWN":
+            object.__setattr__(self, "telegram_parse_mode", "Markdown")
+        elif u == "MARKDOWNV2":
+            object.__setattr__(self, "telegram_parse_mode", "MarkdownV2")
+        else:
+            raise ValueError("TELEGRAM_PARSE_MODE must be HTML, Markdown, or MarkdownV2")
+        return self
+
     @model_validator(mode="after")
     def _validate_strategy_params(self) -> Settings:
         if self.signal_source not in ("llm", "strategy"):
@@ -130,8 +204,41 @@ class Settings(BaseSettings):
                 raise ValueError("STRATEGY_FAST/STRATEGY_SLOW are MACD fast/slow spans; FAST must be < SLOW")
         elif name in ("bollinger", "bb"):
             pass
+        elif name in ("ichimoku", "ichi"):
+            if not (self.strategy_ichimoku_tenkan < self.strategy_ichimoku_kijun < self.strategy_ichimoku_senkou_b):
+                raise ValueError(
+                    "STRATEGY_ICHIMOKU_TENKAN < KIJUN < SENKOU_B required for ichimoku",
+                )
+        elif name in ("fibonacci", "fib"):
+            lf = self.strategy_fib_level
+            if lf not in ("0.382", "0.5", "0.618"):
+                raise ValueError("STRATEGY_FIB_LEVEL must be 0.382, 0.5, or 0.618")
+        elif name in ("volume_profile", "vp"):
+            pass
+        elif name in ("stochastic", "stoch"):
+            if self.strategy_stoch_oversold >= self.strategy_stoch_overbought:
+                raise ValueError("STRATEGY_STOCH_OVERSOLD must be < STRATEGY_STOCH_OVERBOUGHT")
+        elif name in ("atr_breakout", "atr"):
+            pass
+        elif name == "ml":
+            if not self.ml_model_path.strip():
+                raise ValueError("ML_MODEL_PATH is required when STRATEGY_NAME=ml")
+            b = self.ml_backend.lower().strip()
+            if b not in ("torch", "pytorch", "tensorflow", "tf", "keras"):
+                raise ValueError(
+                    "ML_BACKEND must be torch|pytorch|tensorflow|tf|keras when STRATEGY_NAME=ml",
+                )
+            arch = self.ml_torch_arch.lower().strip()
+            if b in ("torch", "pytorch"):
+                if arch not in ("mlp", "lstm", "transformer"):
+                    raise ValueError("ML_TORCH_ARCH must be mlp|lstm|transformer for PyTorch backend")
+            elif arch not in ("mlp",):
+                raise ValueError("ML_TORCH_ARCH must be mlp when using TensorFlow backend (sequence models: use torch)")
         else:
-            allowed = "sma_cross|rsi|macd|bollinger|bb"
+            allowed = (
+                "sma_cross|rsi|macd|bollinger|bb|ichimoku|ichi|fibonacci|fib|volume_profile|vp|"
+                "stochastic|stoch|atr_breakout|atr|ml"
+            )
             raise ValueError(f"Unknown STRATEGY_NAME={self.strategy_name!r} (supported: {allowed})")
         return self
 

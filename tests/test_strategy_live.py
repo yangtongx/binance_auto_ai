@@ -42,3 +42,14 @@ def test_build_live_strategy_on_bar_no_llm() -> None:
     sig = strat.on_bar(len(ohlcv) - 1, ohlcv)
     assert sig.confidence == pytest.approx(0.9)
     assert sig.action.value in ("long", "short", "hold", "flat")
+
+
+def test_ml_tensorflow_disallows_sequence_arch() -> None:
+    with pytest.raises(ValidationError, match="ML_TORCH_ARCH"):
+        Settings(
+            signal_source="strategy",
+            strategy_name="ml",
+            ml_backend="tf",
+            ml_model_path="dummy.keras",
+            ml_torch_arch="lstm",
+        )

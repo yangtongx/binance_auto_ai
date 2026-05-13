@@ -7,6 +7,7 @@ import textwrap
 import time
 from datetime import datetime, timezone
 
+from futures_llm_bot.binance_kline_ws import BinanceUsdMKlineBuffer
 from futures_llm_bot.binance_usdm import (
     build_exchange,
     execute_signal,
@@ -22,9 +23,36 @@ from futures_llm_bot.strategy_factory import build_live_strategy, strategy_min_o
 from futures_llm_bot.observability import start_observability_background
 from futures_llm_bot.risk import assess_signal
 from futures_llm_bot.session_risk import SessionRisk
+from futures_llm_bot.telegram_notify import send_telegram_trade_signal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+
+def _strategy_log_label(settings: Settings) -> str:
+    n = settings.strategy_name
+    if n in ("sma_cross", "macd"):
+        return f"{n}({settings.strategy_fast},{settings.strategy_slow})"
+    if n in ("rsi",):
+        return f"{n}(p={settings.strategy_rsi_period})"
+    if n in ("bollinger", "bb"):
+        return f"{n}(p={settings.strategy_bb_period})"
+    if n in ("ichimoku", "ichi"):
+        return (
+            f"{n}({settings.strategy_ichimoku_tenkan},{settings.strategy_ichimoku_kijun},"
+            f"{settings.strategy_ichimoku_senkou_b})"
+        )
+    if n in ("fibonacci", "fib"):
+        return f"{n}(lb={settings.strategy_fib_lookback},{settings.strategy_fib_level})"
+    if n in ("volume_profile", "vp"):
+        return f"{n}(bars={settings.strategy_vp_bars})"
+    if n in ("stochastic", "stoch"):
+        return f"{n}(k={settings.strategy_stoch_k},d={settings.strategy_stoch_d})"
+    if n in ("atr_breakout", "atr"):
+        return f"{n}(p={settings.strategy_atr_period},m={settings.strategy_atr_mult})"
+    if n == "ml":
+        return f"{n}({settings.ml_backend},{settings.ml_torch_arch},w={settings.strategy_ml_window})"
+    return n
 
 
 def _sleep_until_next_minute_close(buffer_sec: float = 2.0) -> None:
@@ -69,6 +97,7 @@ def _tick(
     account_hedged: bool,
     session: SessionRisk,
     rule_strategy: Strategy | None,
+    ws_buffer: BinanceUsdMKlineBuffer | None = None,
 ) -> None:
     metrics.record_tick_attempt()
     try:
@@ -76,11 +105,22 @@ def _tick(
         session.on_tick(current_usdt_equity=equity)
         session.warn_if_drawdown_near_limit(current_equity=equity)
         if rule_strategy is not None:
-            ohlcv = ex.fetch_ohlcv(
-                settings.symbol,
-                timeframe=settings.timeframe,
-                limit=_ohlcv_fetch_limit(settings),
-            )
+            need = _ohlcv_fetch_limit(settings)
+            if ws_buffer is not None:
+                ohlcv = ws_buffer.get_snapshot(need)
+                if len(ohlcv) < need:
+                    logger.warning("ws buffer short (%s<%s); REST fetch", len(ohlcv), need)
+                    ohlcv = ex.fetch_ohlcv(
+                        settings.symbol,
+                        timeframe=settings.timeframe,
+                        limit=need,
+                    )
+            else:
+                ohlcv = ex.fetch_ohlcv(
+                    settings.symbol,
+                    timeframe=settings.timeframe,
+                    limit=need,
+                )
             signal = rule_strategy.on_bar(len(ohlcv) - 1, ohlcv)
             logger.info("strategy signal: %s", signal.model_dump())
         else:
@@ -94,6 +134,9 @@ def _tick(
                 metrics.record_llm_failure()
                 raise
             logger.info("LLM signal: %s", signal.model_dump())
+
+        src = "strategy" if rule_strategy is not None else "llm"
+        send_telegram_trade_signal(settings, signal, source=src, equity_usdt=equity)
 
         decision = assess_signal(signal, settings.min_confidence)
         if not decision.allowed:
@@ -136,6 +179,22 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
     if settings.signal_source == "strategy":
         rule_strategy = build_live_strategy(settings)
 
+    ws_buffer: BinanceUsdMKlineBuffer | None = None
+    if settings.use_websocket:
+        if settings.signal_source != "strategy":
+            raise SystemExit("USE_WEBSOCKET=true is only supported with SIGNAL_SOURCE=strategy")
+        ws_buffer = BinanceUsdMKlineBuffer(
+            ex,
+            symbol=settings.symbol,
+            timeframe=settings.timeframe,
+            testnet=settings.binance_testnet,
+            reconnect_base_sec=settings.ws_reconnect_base_sec,
+            reconnect_max_sec=settings.ws_reconnect_max_sec,
+            reconnect_jitter=settings.ws_reconnect_jitter,
+        )
+        ws_buffer.seed_from_rest(limit=_ohlcv_fetch_limit(settings))
+        ws_buffer.start()
+
     logger.info(
         "markets loaded; signal_source=%s symbol=%s testnet=%s dry_run=%s min_confidence=%s once=%s hedged=%s "
         "openai_timeout=%ss exchange_timeout=%sms max_trades/day=%s max_daily_loss=%s warn_ratio=%s "
@@ -154,28 +213,31 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
         settings.daily_loss_warn_ratio,
         settings.observability_host,
         settings.observability_port,
-        f"{settings.strategy_name}({settings.strategy_fast},{settings.strategy_slow})"
-        if rule_strategy is not None
-        else "n/a",
+        _strategy_log_label(settings) if rule_strategy is not None else "n/a",
     )
 
-    while True:
-        if not once:
-            _sleep_until_next_minute_close()
-        try:
-            _tick(
-                ex,
-                settings,
-                account_hedged=account_hedged,
-                session=session,
-                rule_strategy=rule_strategy,
-            )
-        except Exception:
-            logger.exception("tick failed")
+    try:
+        while True:
+            if not once:
+                _sleep_until_next_minute_close()
+            try:
+                _tick(
+                    ex,
+                    settings,
+                    account_hedged=account_hedged,
+                    session=session,
+                    rule_strategy=rule_strategy,
+                    ws_buffer=ws_buffer,
+                )
+            except Exception:
+                logger.exception("tick failed")
 
-        if once:
-            break
-        time.sleep(1.0)
+            if once:
+                break
+            time.sleep(1.0)
+    finally:
+        if ws_buffer is not None:
+            ws_buffer.stop()
 
 
 def main() -> None:

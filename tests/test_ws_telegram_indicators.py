@@ -1,0 +1,50 @@
+from __future__ import annotations
+
+import numpy as np
+
+from futures_llm_bot.backtest.indicators import atr_wilder_series, stochastic_cross_state
+from futures_llm_bot.binance_kline_ws import reconnect_delay_sec
+from futures_llm_bot.config import Settings
+from futures_llm_bot.schemas import Action, LLMSignal
+from futures_llm_bot.telegram_format import format_trade_message
+
+
+def test_reconnect_delay_monotonic() -> None:
+    d1 = reconnect_delay_sec(1, base_sec=1.0, max_sec=60.0, jitter_frac=0.0)
+    d2 = reconnect_delay_sec(2, base_sec=1.0, max_sec=60.0, jitter_frac=0.0)
+    assert d2 >= d1
+    dcap = reconnect_delay_sec(99, base_sec=1.0, max_sec=10.0, jitter_frac=0.0)
+    assert dcap == 10.0
+
+
+def test_format_trade_message_default() -> None:
+    s = Settings(telegram_template="compact")
+    sig = LLMSignal(action=Action.LONG, size_pct=50.0, confidence=0.7, reason="test")
+    msg = format_trade_message(s, sig, source="strategy", equity_usdt=123.4567)
+    assert "BTC/USDT:USDT" in msg or "BTC" in msg
+    assert "long" in msg
+
+
+def test_stochastic_cross_state_defined() -> None:
+    n = 80
+    t = np.arange(n, dtype=np.float64) * 60_000
+    c = 100.0 + np.sin(np.linspace(0, 4, n)) * 2.0
+    h = c + 0.5
+    low = c - 0.5
+    v = np.ones(n)
+    ohlcv = [[float(t[i]), c[i], h[i], low[i], c[i], v[i]] for i in range(n)]
+    h_arr = np.array([b[2] for b in ohlcv])
+    l_arr = np.array([b[3] for b in ohlcv])
+    c_arr = np.array([b[4] for b in ohlcv])
+    st = stochastic_cross_state(h_arr, l_arr, c_arr, 14, 3)
+    assert st is not None
+
+
+def test_atr_positive() -> None:
+    n = 40
+    h = np.linspace(100, 110, n)
+    low = h - 1.0
+    c = (h + low) / 2.0
+    a = atr_wilder_series(h, low, c, 14)
+    assert np.isfinite(a[-1])
+    assert float(a[-1]) > 0

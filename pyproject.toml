@@ -11,6 +11,7 @@ requires-python = ">=3.10"
 dependencies = [
     "ccxt>=4.4.0",
     "filelock>=3.13.0",
+    "numpy>=1.26.0",
     "openai>=1.40.0",
     "pydantic>=2.7.0",
     "pydantic-settings>=2.2.0",
@@ -19,6 +20,9 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+realtime = ["websocket-client>=1.7.0"]
+ml-torch = ["torch>=2.1.0"]
+ml-tf = ["tensorflow>=2.15.0"]
 
 [project.scripts]
 futures-llm-bot = "futures_llm_bot.cli:main"
