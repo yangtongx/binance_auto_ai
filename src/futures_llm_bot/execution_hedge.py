@@ -9,7 +9,12 @@ import ccxt
 
 from futures_llm_bot.config import Settings
 from futures_llm_bot.constants import LEG_POSITION_EPS_CONTRACTS, NET_POSITION_EPS_CONTRACTS
-from futures_llm_bot.order_utils import amount_respects_limits, notional_to_amount, place_order, wait_for_legs
+from futures_llm_bot.execution_helpers import (
+    close_reduce_only_and_refresh,
+    directional_notional_or_skip,
+    open_market_within_notional_cap,
+)
+from futures_llm_bot.order_utils import place_order, wait_for_legs
 from futures_llm_bot.positions import PositionLegs, fetch_position_legs, long_leg_notional_usdt, mark_last_usdt, short_leg_notional_usdt
 from futures_llm_bot.schemas import Action, LLMSignal
 from futures_llm_bot.session_risk import SessionRisk
@@ -72,89 +77,72 @@ def execute_hedged(
             logger.warning("HEDGE FLAT may be incomplete — legs still non-zero after retries")
         return
 
-    requested = settings.max_notional_usdt * (signal.size_pct / 100.0)
-    if requested <= 0:
-        logger.info("directional trade skipped — requested notional<=0")
+    requested = directional_notional_or_skip(settings, signal)
+    if requested is None:
         return
 
     if signal.action == Action.LONG:
         if legs.short_contracts > LEG_POSITION_EPS_CONTRACTS:
             close_amt = float(ex.amount_to_precision(symbol, legs.short_contracts))
-            logger.info("HEDGE close SHORT leg before LONG amount=%s", close_amt)
-            place_order(
+            legs, last = close_reduce_only_and_refresh(
                 ex,
                 symbol,
-                "buy",
-                close_amt,
+                settings,
+                session,
+                on_real_order,
+                side="buy",
+                amount=close_amt,
                 params={"positionSide": "SHORT", "reduceOnly": True},
-                dry_run=settings.dry_run,
-                session=session,
-                on_real_order=on_real_order,
+                wait_until=lambda lg: lg.short_contracts < LEG_POSITION_EPS_CONTRACTS,
+                log_message=f"HEDGE close SHORT leg before LONG amount={close_amt}",
             )
-            if not settings.dry_run:
-                wait_for_legs(ex, symbol, settings, lambda lg: lg.short_contracts < LEG_POSITION_EPS_CONTRACTS)
-            legs = fetch_position_legs(ex, symbol)
-            last = mark_last_usdt(ex, symbol)
 
         long_n = long_leg_notional_usdt(legs, last)
-        room = max(0.0, settings.max_notional_usdt - long_n)
-        target_notional = min(requested, room)
-        if target_notional <= 0:
-            logger.info("HEDGE LONG skipped — long leg at cap (long_notional≈%.4f)", long_n)
-            return
-        amount, _ = notional_to_amount(ex, symbol, target_notional, last=last)
-        if not amount_respects_limits(ex, symbol, amount, last=last):
-            logger.info("HEDGE LONG skipped — amount %s fails min amount/cost", amount)
-            return
-        logger.info("HEDGE LONG market buy amount=%s positionSide=LONG", amount)
-        place_order(
+        open_market_within_notional_cap(
             ex,
             symbol,
-            "buy",
-            amount,
-            params={"positionSide": "LONG"},
-            dry_run=settings.dry_run,
-            session=session,
-            on_real_order=on_real_order,
+            settings,
+            session,
+            on_real_order,
+            last=last,
+            requested=requested,
+            exposure_abs=long_n,
+            side="buy",
+            order_params={"positionSide": "LONG"},
+            success_log="HEDGE LONG market buy amount=%s (notional≈%s USDT, room=%s)",
+            skip_cap_log=(f"HEDGE LONG skipped — long leg at cap (long_notional≈{long_n:.4f})"),
+            skip_limits_log="HEDGE LONG skipped — amount %s fails min amount/cost",
         )
 
     elif signal.action == Action.SHORT:
         if legs.long_contracts > LEG_POSITION_EPS_CONTRACTS:
             close_amt = float(ex.amount_to_precision(symbol, legs.long_contracts))
-            logger.info("HEDGE close LONG leg before SHORT amount=%s", close_amt)
-            place_order(
+            legs, last = close_reduce_only_and_refresh(
                 ex,
                 symbol,
-                "sell",
-                close_amt,
+                settings,
+                session,
+                on_real_order,
+                side="sell",
+                amount=close_amt,
                 params={"positionSide": "LONG", "reduceOnly": True},
-                dry_run=settings.dry_run,
-                session=session,
-                on_real_order=on_real_order,
+                wait_until=lambda lg: lg.long_contracts < LEG_POSITION_EPS_CONTRACTS,
+                log_message=f"HEDGE close LONG leg before SHORT amount={close_amt}",
             )
-            if not settings.dry_run:
-                wait_for_legs(ex, symbol, settings, lambda lg: lg.long_contracts < LEG_POSITION_EPS_CONTRACTS)
-            legs = fetch_position_legs(ex, symbol)
-            last = mark_last_usdt(ex, symbol)
 
         short_n = short_leg_notional_usdt(legs, last)
-        room = max(0.0, settings.max_notional_usdt - short_n)
-        target_notional = min(requested, room)
-        if target_notional <= 0:
-            logger.info("HEDGE SHORT skipped — short leg at cap (short_notional≈%.4f)", short_n)
-            return
-        amount, _ = notional_to_amount(ex, symbol, target_notional, last=last)
-        if not amount_respects_limits(ex, symbol, amount, last=last):
-            logger.info("HEDGE SHORT skipped — amount %s fails min amount/cost", amount)
-            return
-        logger.info("HEDGE SHORT market sell amount=%s positionSide=SHORT", amount)
-        place_order(
+        open_market_within_notional_cap(
             ex,
             symbol,
-            "sell",
-            amount,
-            params={"positionSide": "SHORT"},
-            dry_run=settings.dry_run,
-            session=session,
-            on_real_order=on_real_order,
+            settings,
+            session,
+            on_real_order,
+            last=last,
+            requested=requested,
+            exposure_abs=short_n,
+            side="sell",
+            order_params={"positionSide": "SHORT"},
+            success_log="HEDGE SHORT market sell amount=%s (notional≈%s USDT, room=%s)",
+            skip_cap_log=(f"HEDGE SHORT skipped — short leg at cap (short_notional≈{short_n:.4f})"),
+            skip_limits_log="HEDGE SHORT skipped — amount %s fails min amount/cost",
         )
