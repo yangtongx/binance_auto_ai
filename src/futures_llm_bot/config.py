@@ -48,7 +48,11 @@ def _load_docker_secrets() -> None:
         path = Path(os.environ[file_key])
         if not path.is_file():
             continue
-        os.environ[env_key] = path.read_text(encoding="utf-8").strip()
+        try:
+            os.environ[env_key] = path.read_text(encoding="utf-8").strip()
+        except PermissionError:
+            # Compose mounts secrets as root:root 0600; non-root must use docker-entrypoint.sh.
+            continue
 
 
 _load_docker_secrets()
