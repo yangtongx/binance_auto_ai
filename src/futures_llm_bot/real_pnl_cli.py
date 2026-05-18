@@ -72,8 +72,10 @@ def main() -> None:
         raise SystemExit("start must be before until/now")
 
     unified = (args.symbol if args.symbol is not None else settings.symbol).strip()
+    from futures_llm_bot.exchange_env import load_binance_usdm_markets
+
     ex = build_exchange(settings)
-    ex.load_markets()
+    load_binance_usdm_markets(ex)
     sym_native: str | None = None
     label: str
     if args.all_contracts or not unified:

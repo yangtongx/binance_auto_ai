@@ -9,6 +9,17 @@ import ccxt
 logger = logging.getLogger(__name__)
 
 
+def configure_binance_usdm_exchange(ex: ccxt.binanceusdm) -> None:
+    """CCXT options for USDT-M only (no spot SAPI ``fetch_currencies`` on startup)."""
+    ex.options = {**ex.options, "defaultType": "future", "fetchCurrencies": False}
+
+
+def load_binance_usdm_markets(ex: ccxt.binanceusdm) -> None:
+    """Load futures markets without calling spot wallet SAPI (futures-only API keys)."""
+    configure_binance_usdm_exchange(ex)
+    ex.load_markets()
+
+
 def apply_binance_usdm_environment(ex: ccxt.binanceusdm, *, testnet: bool) -> None:
     """Configure exchange URLs for paper/demo vs mainnet.
 
@@ -16,6 +27,7 @@ def apply_binance_usdm_environment(ex: ccxt.binanceusdm, *, testnet: bool) -> No
     When ``testnet=True``, enable **demo trading** (``demo-fapi.binance.com``) instead.
     Keys must be created at https://demo.binance.com (not mainnet keys).
     """
+    configure_binance_usdm_exchange(ex)
     if not testnet:
         return
     enable_demo = getattr(ex, "enable_demo_trading", None)

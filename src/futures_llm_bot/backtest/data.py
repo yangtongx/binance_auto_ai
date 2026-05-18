@@ -7,13 +7,18 @@ from pathlib import Path
 
 import ccxt
 
-from futures_llm_bot.exchange_env import apply_binance_usdm_environment
+from futures_llm_bot.exchange_env import (
+    apply_binance_usdm_environment,
+    configure_binance_usdm_exchange,
+    load_binance_usdm_markets,
+)
 
 OHLCVRow = list[float]  # [ts_ms, o, h, l, c, v]
 
 
 def _new_binance_usdm_exchange(*, testnet: bool) -> ccxt.binanceusdm:
-    ex = ccxt.binanceusdm({"enableRateLimit": True, "options": {"defaultType": "future"}})
+    ex = ccxt.binanceusdm({"enableRateLimit": True, "options": {}})
+    configure_binance_usdm_exchange(ex)
     apply_binance_usdm_environment(ex, testnet=testnet)
     return ex
 
@@ -27,7 +32,7 @@ def fetch_ohlcv_ccxt(
 ) -> list[OHLCVRow]:
     """Pull history from Binance USDM (testnet by default). Requires network."""
     ex = _new_binance_usdm_exchange(testnet=testnet)
-    ex.load_markets()
+    load_binance_usdm_markets(ex)
     raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
     return [list(map(float, row)) for row in raw]
 
@@ -51,7 +56,7 @@ def fetch_ohlcv_ccxt_paginated(
     if page_size < 1:
         raise ValueError("page_size must be >= 1")
     ex = _new_binance_usdm_exchange(testnet=testnet)
-    ex.load_markets()
+    load_binance_usdm_markets(ex)
 
     out: list[OHLCVRow] = []
     end_time: int | None = None

@@ -223,8 +223,10 @@ def _tick(
 def run_loop(settings: Settings, *, once: bool = False) -> None:
     if settings.observability_port > 0:
         start_observability_background(settings.observability_host, settings.observability_port)
+    from futures_llm_bot.exchange_env import load_binance_usdm_markets
+
     ex = build_exchange(settings)
-    ex.load_markets()
+    load_binance_usdm_markets(ex)
     try:
         account_hedged = resolve_account_hedged(ex, settings)
     except ValueError as e:

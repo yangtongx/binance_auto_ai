@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from futures_llm_bot.exchange_env import apply_binance_usdm_environment, binance_usdm_ws_base
+from futures_llm_bot.exchange_env import (
+    apply_binance_usdm_environment,
+    binance_usdm_ws_base,
+    configure_binance_usdm_exchange,
+)
 
 
 def test_apply_demo_calls_enable_demo_trading() -> None:
@@ -22,3 +26,10 @@ def test_apply_mainnet_noop() -> None:
 
 def test_ws_base_uses_mainnet_fstream() -> None:
     assert binance_usdm_ws_base(testnet=True).startswith("wss://fstream.binance.com")
+
+
+def test_configure_disables_fetch_currencies() -> None:
+    ex = MagicMock()
+    ex.options = {"defaultType": "future"}
+    configure_binance_usdm_exchange(ex)
+    assert ex.options.get("fetchCurrencies") is False
