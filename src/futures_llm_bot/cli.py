@@ -250,6 +250,12 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
         ws_buffer.seed_from_rest(limit=_ohlcv_fetch_limit(settings))
         ws_buffer.start()
 
+    if not settings.binance_api_key or not settings.binance_api_secret:
+        logger.warning(
+            "BINANCE_API_KEY/SECRET missing — public market data works; balance/positions/orders need keys "
+            "(Docker: ./secrets/binance_api_key + compose secrets, or set env vars; empty .env values block *_FILE)"
+        )
+
     logger.info(
         "markets loaded; signal_source=%s symbol=%s testnet=%s dry_run=%s min_confidence=%s once=%s hedged=%s "
         "openai_timeout=%ss exchange_timeout=%sms max_trades/day=%s max_daily_loss=%s warn_ratio=%s "

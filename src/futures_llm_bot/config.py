@@ -10,6 +10,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # src/futures_llm_bot/config.py -> repository root (parent of "src")
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_ENV_FILE = _REPO_ROOT / ".env"
+# Writable session state in the official image (see Dockerfile / docker-compose).
+_DOCKER_STATE_FILE = Path("/app/state/state.json")
+
+
+def _in_docker() -> bool:
+    return Path("/.dockerenv").is_file()
+
+
+def _docker_writable_state_file() -> Path | None:
+    if _in_docker() and _DOCKER_STATE_FILE.parent.is_dir():
+        return _DOCKER_STATE_FILE
+    return None
 
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$")
 
@@ -22,10 +35,20 @@ _DOCKER_SECRET_MAP = {
 
 
 def _load_docker_secrets() -> None:
+    """Load secrets from ``*_FILE`` paths when the direct env var is unset or empty.
+
+    ``env_file: .env`` in Docker Compose often sets ``BINANCE_API_KEY=`` (empty), which
+    would otherwise block reading ``/run/secrets/...``.
+    """
     for env_key, file_key in _DOCKER_SECRET_MAP.items():
-        if env_key not in os.environ and file_key in os.environ:
-            path = os.environ[file_key]
-            os.environ[env_key] = Path(path).read_text().strip()
+        if os.environ.get(env_key, "").strip():
+            continue
+        if file_key not in os.environ:
+            continue
+        path = Path(os.environ[file_key])
+        if not path.is_file():
+            continue
+        os.environ[env_key] = path.read_text(encoding="utf-8").strip()
 
 
 _load_docker_secrets()
@@ -33,7 +56,7 @@ _load_docker_secrets()
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(_REPO_ROOT / ".env"),
+        env_file=str(_ENV_FILE) if _ENV_FILE.is_file() else None,
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
@@ -324,4 +347,9 @@ class Settings(BaseSettings):
         p = Path(v)  # type: ignore[arg-type]
         if p.is_absolute():
             return p
+        # .env often keeps a repo-relative path; /app is not writable in the container image.
+        if p.name == ".futures_llm_bot_state.json":
+            docker_path = _docker_writable_state_file()
+            if docker_path is not None:
+                return docker_path
         return _REPO_ROOT / p

@@ -59,13 +59,13 @@ def execute_signal(
     session: SessionRisk | None = None,
     on_real_order: Callable[[], None] | None = None,
 ) -> None:
-    symbol = settings.symbol
-    legs = fetch_position_legs(ex, symbol)
-    last = mark_last_usdt(ex, symbol)
-
     if signal.action == Action.HOLD:
         logger.info("HOLD — no order")
         return
+
+    symbol = settings.symbol
+    legs = fetch_position_legs(ex, symbol)
+    last = mark_last_usdt(ex, symbol)
 
     if account_hedged:
         execute_hedged(

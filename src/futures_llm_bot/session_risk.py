@@ -45,7 +45,19 @@ class SessionRisk:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._path = settings.state_file
-        self._lock = FileLock(str(self._path.parent / (self._path.name + ".lock")), timeout=60)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self._path.parent / (self._path.name + ".lock")
+        self._lock = FileLock(str(lock_path), timeout=60)
+        try:
+            self._acquire_and_load()
+        except PermissionError as e:
+            raise PermissionError(
+                f"cannot write session state at {self._path} (lock: {lock_path}). "
+                "In Docker set STATE_FILE=/app/state/state.json and mount ./state:/app/state "
+                "(see docker-compose.yml). Do not use /app/.futures_llm_bot_state.json."
+            ) from e
+
+    def _acquire_and_load(self) -> None:
         with self._lock:
             raw = _load(self._path)
             self._utc_date = raw.get("utc_date") or _today_utc()
