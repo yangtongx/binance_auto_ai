@@ -51,7 +51,7 @@ def wait_for_legs(
 ) -> None:
     deadline = time.monotonic() + settings.position_poll_timeout_sec
     while time.monotonic() < deadline:
-        if ok(fetch_position_legs(ex, symbol)):
+        if ok(fetch_position_legs(ex, symbol, dry_run=settings.dry_run)):
             return
         time.sleep(settings.position_poll_interval_sec)
     logger.warning("position poll timed out (timeout=%ss) symbol=%s", settings.position_poll_timeout_sec, symbol)

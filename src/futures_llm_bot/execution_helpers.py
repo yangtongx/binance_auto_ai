@@ -54,7 +54,7 @@ def close_reduce_only_and_refresh(
     )
     if not settings.dry_run:
         wait_for_legs(ex, symbol, settings, wait_until)
-    legs = fetch_position_legs(ex, symbol)
+    legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
     last = mark_last_usdt(ex, symbol)
     return legs, last
 

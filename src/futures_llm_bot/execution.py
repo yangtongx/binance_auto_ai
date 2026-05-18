@@ -64,7 +64,7 @@ def execute_signal(
         return
 
     symbol = settings.symbol
-    legs = fetch_position_legs(ex, symbol)
+    legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
     last = mark_last_usdt(ex, symbol)
 
     if account_hedged:

@@ -53,10 +53,30 @@ def signed_position_contracts(position: dict[str, Any] | None) -> float:
     return 0.0
 
 
-def fetch_position_legs(ex: ccxt.binanceusdm, symbol: str) -> PositionLegs:
+def _fetch_positions_rows(
+    ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool
+) -> list[dict[str, Any]]:
+    try:
+        return list(ex.fetch_positions([symbol]))
+    except ccxt.AuthenticationError as e:
+        if dry_run:
+            logger.warning(
+                "fetch_positions auth failed (%s) — assuming flat (dry_run). "
+                "Use Demo keys from https://demo.binance.com when BINANCE_TESTNET=true "
+                "(Futures permission + IP whitelist), or BINANCE_TESTNET=false with mainnet keys.",
+                e,
+            )
+            return []
+        raise AuthenticationError(
+            f"{e}. Check: Demo vs mainnet keys match BINANCE_TESTNET; Futures API permission; "
+            "IP whitelist includes this host."
+        ) from e
+
+
+def fetch_position_legs(ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool = False) -> PositionLegs:
     long_c = short_c = 0.0
     long_n = short_n = 0.0
-    for p in ex.fetch_positions([symbol]):
+    for p in _fetch_positions_rows(ex, symbol, dry_run=dry_run):
         if p.get("symbol") != symbol:
             continue
         side = (p.get("side") or "").lower()
@@ -91,16 +111,16 @@ def mark_last_usdt(ex: ccxt.binanceusdm, symbol: str) -> float:
     return last
 
 
-def fetch_position_meta(ex: ccxt.binanceusdm, symbol: str) -> tuple[float, float]:
-    legs = fetch_position_legs(ex, symbol)
+def fetch_position_meta(ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool = False) -> tuple[float, float]:
+    legs = fetch_position_legs(ex, symbol, dry_run=dry_run)
     last = mark_last_usdt(ex, symbol)
     signed = legs.signed_net()
     abs_n = primary_exposure_notional_usdt(legs, last)
     return signed, abs_n
 
 
-def fetch_position_contracts(ex: ccxt.binanceusdm, symbol: str) -> float:
-    return fetch_position_legs(ex, symbol).signed_net()
+def fetch_position_contracts(ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool = False) -> float:
+    return fetch_position_legs(ex, symbol, dry_run=dry_run).signed_net()
 
 
 def fetch_futures_usdt_equity(ex: ccxt.binanceusdm) -> float | None:
@@ -155,7 +175,7 @@ def format_account_context(
     *,
     account_hedged: bool,
 ) -> str:
-    legs = fetch_position_legs(ex, settings.symbol)
+    legs = fetch_position_legs(ex, settings.symbol, dry_run=settings.dry_run)
     last = mark_last_usdt(ex, settings.symbol)
     eq = fetch_futures_usdt_equity(ex)
     ln = legs.long_notional if legs.long_notional > 0 else legs.long_contracts * last

@@ -36,7 +36,7 @@ def execute_hedged(
 
     if signal.action == Action.FLAT:
         for attempt in range(3):
-            legs = fetch_position_legs(ex, symbol)
+            legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
             if legs.long_contracts < NET_POSITION_EPS_CONTRACTS and legs.short_contracts < NET_POSITION_EPS_CONTRACTS:
                 if attempt == 0:
                     logger.info("FLAT skipped — both legs flat")
@@ -56,7 +56,7 @@ def execute_hedged(
                 )
                 if not settings.dry_run:
                     wait_for_legs(ex, symbol, settings, lambda lg: lg.long_contracts < LEG_POSITION_EPS_CONTRACTS)
-            legs = fetch_position_legs(ex, symbol)
+            legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
             if legs.short_contracts > LEG_POSITION_EPS_CONTRACTS:
                 amt = float(ex.amount_to_precision(symbol, legs.short_contracts))
                 logger.info("HEDGE FLAT close SHORT amount=%s (attempt %s)", amt, attempt + 1)
@@ -72,7 +72,7 @@ def execute_hedged(
                 )
                 if not settings.dry_run:
                     wait_for_legs(ex, symbol, settings, lambda lg: lg.short_contracts < LEG_POSITION_EPS_CONTRACTS)
-        legs = fetch_position_legs(ex, symbol)
+        legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
         if legs.long_contracts > LEG_POSITION_EPS_CONTRACTS or legs.short_contracts > LEG_POSITION_EPS_CONTRACTS:
             logger.warning("HEDGE FLAT may be incomplete — legs still non-zero after retries")
         return
