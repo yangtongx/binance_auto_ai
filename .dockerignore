@@ -5,9 +5,15 @@ __pycache__
 *.pyc
 *.pyo
 .env
+.env.*.local
+secrets/
+state/
 *.egg-info
 dist
 build
 tests
+examples
+artifacts
 *.md
+!README.md
 .futures_llm_bot_state.json

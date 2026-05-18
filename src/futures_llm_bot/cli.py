@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 import textwrap
 import time
@@ -31,6 +32,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 _corr_log_counter = 0
+
+_stop_requested = False
+
+
+def _request_stop(signum: int, _frame: object) -> None:
+    """Signal handler: ask the main loop to exit gracefully after the current tick."""
+    global _stop_requested
+    _stop_requested = True
+    logger.info("received signal %s; stopping after current tick", signum)
 
 
 def _strategy_log_label(settings: Settings) -> str:
@@ -263,8 +273,14 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
 
     try:
         while True:
+            if _stop_requested:
+                logger.info("stop requested; exiting before next tick")
+                break
             if not once:
                 _sleep_until_next_minute_close()
+                if _stop_requested:
+                    logger.info("stop requested during sleep; exiting")
+                    break
             try:
                 _tick(
                     ex,
@@ -316,6 +332,13 @@ def main() -> None:
         raise SystemExit("OPENAI_API_KEY is required when SIGNAL_SOURCE=llm")
     if not settings.dry_run and (not settings.binance_api_key or not settings.binance_api_secret):
         raise SystemExit("BINANCE_API_KEY/SECRET required when DRY_RUN=false")
+
+    # Graceful shutdown on container stop (SIGTERM) and Ctrl-C (SIGINT).
+    signal.signal(signal.SIGINT, _request_stop)
+    try:
+        signal.signal(signal.SIGTERM, _request_stop)
+    except (AttributeError, ValueError):
+        pass  # SIGTERM unavailable on some platforms / non-main threads
 
     try:
         run_loop(settings, once=args.once)

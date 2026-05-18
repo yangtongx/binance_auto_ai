@@ -3,9 +3,14 @@ services:
     build: .
     container_name: futures-llm-bot
     restart: unless-stopped
+    init: true  # propagate SIGTERM cleanly and reap zombies
     env_file: .env
     environment:
-      # 从密钥文件注入敏感信息，覆盖 .env 中的空值
+      # Override .env for container-side networking and persistence.
+      OBSERVABILITY_HOST: 0.0.0.0
+      OBSERVABILITY_PORT: "8080"
+      STATE_FILE: /app/state/state.json
+      # Inject secrets via files (see `secrets:` below). Removes the need to put keys in .env.
       BINANCE_API_KEY_FILE: /run/secrets/binance_api_key
       BINANCE_API_SECRET_FILE: /run/secrets/binance_api_secret
       OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
@@ -14,16 +19,24 @@ services:
       - binance_api_secret
       - openai_api_key
     volumes:
-      - ./state:/app/state
+      # `:Z` lets Docker re-label the host dir for SELinux-enforcing systems
+      # (RHEL/CentOS/Rocky/AlmaLinux/OpenCloudOS). On Ubuntu/Debian it is a no-op.
+      - ./state:/app/state:Z
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     ports:
-      # observability dashboard; adjust to match OBSERVABILITY_PORT
+      # Dashboard / metrics: only exposed on host loopback. Reverse-proxy if needed.
       - "127.0.0.1:8080:8080"
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
+      # Server listens on 0.0.0.0:8080 inside the container; localhost works for the in-container probe.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8080/health', timeout=3); sys.exit(0)"]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
 secrets:
   binance_api_key:
