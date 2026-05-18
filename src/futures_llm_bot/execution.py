@@ -8,6 +8,7 @@ from typing import Callable
 import ccxt
 
 from futures_llm_bot.config import Settings
+from futures_llm_bot.exchange_env import apply_binance_usdm_environment
 from futures_llm_bot.execution_hedge import execute_hedged
 from futures_llm_bot.execution_oneway import execute_oneway
 from futures_llm_bot.positions import fetch_position_legs, mark_last_usdt
@@ -27,8 +28,7 @@ def build_exchange(settings: Settings) -> ccxt.binanceusdm:
             "options": {"defaultType": "future"},
         }
     )
-    if settings.binance_testnet:
-        ex.set_sandbox_mode(True)
+    apply_binance_usdm_environment(ex, testnet=settings.binance_testnet)
     return ex
 
 

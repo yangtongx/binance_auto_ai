@@ -14,7 +14,9 @@ logger = logging.getLogger(__name__)
 
 
 def _ws_url(*, testnet: bool, stream_path: str) -> str:
-    base = "wss://stream.binancefuture.com/ws" if testnet else "wss://fstream.binance.com/ws"
+    from futures_llm_bot.exchange_env import binance_usdm_ws_base
+
+    base = binance_usdm_ws_base(testnet=testnet)
     return f"{base}/{stream_path}"
 
 

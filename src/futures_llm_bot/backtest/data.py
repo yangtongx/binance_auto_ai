@@ -7,13 +7,14 @@ from pathlib import Path
 
 import ccxt
 
+from futures_llm_bot.exchange_env import apply_binance_usdm_environment
+
 OHLCVRow = list[float]  # [ts_ms, o, h, l, c, v]
 
 
 def _new_binance_usdm_exchange(*, testnet: bool) -> ccxt.binanceusdm:
     ex = ccxt.binanceusdm({"enableRateLimit": True, "options": {"defaultType": "future"}})
-    if testnet:
-        ex.set_sandbox_mode(True)
+    apply_binance_usdm_environment(ex, testnet=testnet)
     return ex
 
 
