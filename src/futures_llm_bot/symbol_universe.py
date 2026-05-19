@@ -286,8 +286,10 @@ def select_top_usdm_candidates(
         settings, equity_usdt=equity_usdt, available_margin_usdt=available_margin_usdt
     )
     min_vol = float(settings.symbol_candidates_min_quote_volume_usdt)
+    max_abs_change = float(settings.symbol_candidates_max_abs_change_pct)
     refresh_seed = time.strftime("%Y-%m-%d-%H", time.gmtime())
     eligible: list[tuple[str, dict[str, float]]] = []
+    skipped_pump: list[tuple[str, float]] = []
 
     for sym, market in ex.markets.items():
         if sym in exclude:
@@ -301,6 +303,11 @@ def select_top_usdm_candidates(
         if min_vol > 0:
             qv = _ticker_quote_volume_usdt(ticker)
             if qv > 0 and qv < min_vol:
+                continue
+        if max_abs_change > 0:
+            pct = _ticker_percentage(ticker)
+            if pct is not None and abs(pct) > max_abs_change:
+                skipped_pump.append((sym, pct))
                 continue
         last = ticker.get("last") or ticker.get("close")
         try:
@@ -360,6 +367,17 @@ def select_top_usdm_candidates(
             symbol=sym,
         )
         rows.append((composite, sym))
+
+    if skipped_pump:
+        sample = ", ".join(f"{s}({p:+.1f}%)" for s, p in skipped_pump[:5])
+        more = "" if len(skipped_pump) <= 5 else f" …(+{len(skipped_pump) - 5})"
+        logger.info(
+            "auto candidates: skipped %s pump/dump symbols (|24h%%| > %.1f): %s%s",
+            len(skipped_pump),
+            max_abs_change,
+            sample,
+            more,
+        )
 
     rows.sort(key=lambda x: (-x[0], x[1]))
     count = int(settings.symbol_candidates_count)

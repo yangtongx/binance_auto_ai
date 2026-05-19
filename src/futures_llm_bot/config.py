@@ -209,6 +209,14 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="SYMBOL_CANDIDATES_FILTER_MIN_NOTIONAL",
     )
+    # Drop symbols whose absolute 24h % change exceeds this value (0 = off).
+    # Prevents the auto pool from picking pumps/dumps like 100%-200% movers.
+    symbol_candidates_max_abs_change_pct: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=1000.0,
+        validation_alias="SYMBOL_CANDIDATES_MAX_ABS_CHANGE_PCT",
+    )
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
     max_notional_usdt: float = Field(default=50.0, gt=0, validation_alias="MAX_NOTIONAL_USDT")
