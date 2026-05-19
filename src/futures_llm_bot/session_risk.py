@@ -152,3 +152,18 @@ class SessionRisk:
                 },
             )
             logger.info("session risk: trade_count=%s (UTC %s)", self._trade_count, self._utc_date)
+
+    def snapshot_stats(self, *, current_equity: float | None = None) -> dict[str, Any]:
+        """Read-only session counters for the dashboard."""
+        with self._lock:
+            day_dd: float | None = None
+            if self._day_start_equity is not None and current_equity is not None:
+                day_dd = max(0.0, float(self._day_start_equity) - float(current_equity))
+            return {
+                "utc_date": self._utc_date,
+                "trade_count": self._trade_count,
+                "day_start_equity": self._day_start_equity,
+                "day_drawdown_usdt": day_dd,
+                "max_trades_per_day": self._settings.max_trades_per_day,
+                "max_daily_loss_usdt": self._settings.max_daily_loss_usdt,
+            }

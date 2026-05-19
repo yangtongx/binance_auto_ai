@@ -7,6 +7,7 @@ import time
 from typing import Any
 
 from futures_llm_bot import __version__
+from futures_llm_bot import dashboard_state
 
 _lock = threading.Lock()
 _started = time.time()
@@ -90,6 +91,7 @@ def snapshot() -> dict[str, Any]:
                 "avg_duration_ms": round(avg_llm_ms, 2),
             },
             "last_error": _last_error,
+            "dashboard": dashboard_state.snapshot(),
         }
 
 

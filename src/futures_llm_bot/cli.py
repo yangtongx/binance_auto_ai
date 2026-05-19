@@ -19,7 +19,7 @@ from futures_llm_bot.binance_usdm import (
 )
 from futures_llm_bot.backtest.engine import Strategy
 from futures_llm_bot.config import Settings
-from futures_llm_bot import metrics
+from futures_llm_bot import dashboard_state, metrics
 from futures_llm_bot.llm_strategy import llm_decide
 from futures_llm_bot.strategy_factory import build_live_strategy, strategy_min_ohlcv_bars
 from futures_llm_bot.observability import start_observability_background
@@ -138,11 +138,25 @@ def _run_trade_step(
     if not decision.allowed:
         logger.warning("risk blocked (%s): %s", symbol, decision.message)
         metrics.record_tick_risk_blocked()
+        dashboard_state.append_decision(
+            symbol=symbol,
+            signal=signal,
+            source=src,
+            outcome="risk_blocked",
+            detail=decision.message or "",
+        )
         return False
     gate = session.block_reason_for(signal.action, current_equity=equity)
     if gate:
         logger.warning("session risk blocked (%s): %s", symbol, gate)
         metrics.record_tick_risk_blocked()
+        dashboard_state.append_decision(
+            symbol=symbol,
+            signal=signal,
+            source=src,
+            outcome="session_blocked",
+            detail=gate,
+        )
         return False
     execute_signal(
         ex,
@@ -154,6 +168,13 @@ def _run_trade_step(
         available_margin_usdt=available_margin,
         session=session,
         on_real_order=metrics.record_real_order,
+    )
+    dashboard_state.append_decision(
+        symbol=symbol,
+        signal=signal,
+        source=src,
+        outcome="dry_run" if settings.dry_run else "executed",
+        detail=signal.action.value,
     )
     return True
 
@@ -175,6 +196,10 @@ def _tick_signal_pick(
         signals, candidates_order=candidates, min_confidence=settings.min_confidence
     )
     log_candidate_signals(candidates, signals, pick=pick)
+    dashboard_state.set_candidates(candidates)
+    dashboard_state.set_signals(signals)
+    if pick is not None:
+        dashboard_state.note_pick(symbol=pick.symbol, signal=pick.signal, score=pick.score)
     steps = plan_signal_pick_trades(
         signals,
         candidates=candidates,
@@ -263,6 +288,8 @@ def _tick(
                 )
             signal = rule_strategy.on_bar(len(ohlcv) - 1, ohlcv)
             logger.info("strategy signal: %s", signal.model_dump())
+            dashboard_state.set_candidates([settings.symbol])
+            dashboard_state.set_signals({settings.symbol: signal})
 
             if (
                 settings.risk_var_window > 0
@@ -309,6 +336,8 @@ def _tick(
                 metrics.record_llm_failure()
                 raise
             logger.info("LLM signal: %s", signal.model_dump())
+            dashboard_state.set_candidates([settings.symbol])
+            dashboard_state.set_signals({settings.symbol: signal})
 
         src = "strategy" if rule_strategy is not None else "llm"
         _run_trade_step(
@@ -324,9 +353,15 @@ def _tick(
         )
     except Exception as e:
         metrics.record_tick_failed(repr(e))
+        dashboard_state.append_event(f"tick failed: {e!r}")
         raise
     else:
         metrics.record_tick_completed()
+    finally:
+        try:
+            dashboard_state.refresh_exchange(ex, settings, session)
+        except Exception:
+            logger.debug("dashboard refresh failed", exc_info=True)
 
 
 def run_loop(settings: Settings, *, once: bool = False) -> None:
@@ -350,6 +385,9 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
     except ValueError as e:
         raise SystemExit(str(e)) from e
     session = SessionRisk(settings)
+    boot_syms = candidate_pool.symbols() if candidate_pool is not None else None
+    dashboard_state.set_boot_config(settings, candidate_symbols=boot_syms)
+    dashboard_state.append_event("bot started")
     rule_strategy: Strategy | None = None
     if settings.signal_source == "strategy":
         rule_strategy = build_live_strategy(settings)
@@ -426,7 +464,10 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
             if candidate_pool is not None and candidate_pool.should_refresh():
                 try:
                     candidate_pool.refresh(ex)
-                    for sym in candidate_pool.symbols():
+                    syms = candidate_pool.symbols()
+                    dashboard_state.set_candidates(syms)
+                    dashboard_state.append_event("candidate pool refreshed: " + ", ".join(syms))
+                    for sym in syms:
                         apply_symbol_leverage(ex, settings, symbol=sym)
                 except Exception:
                     logger.exception("candidate pool refresh failed")
