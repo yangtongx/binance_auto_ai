@@ -22,6 +22,14 @@ _RANK_METRICS = frozenset(
     {"abs_change", "change", "open_interest", "quote_volume", "liquidity", "random"}
 )
 _METRIC_ALIASES = {"volume": "quote_volume", "liquidity": "quote_volume"}
+# Used when auto scan returns <2 symbols (API/ticker gaps, strict filters).
+_FALLBACK_CANDIDATES = (
+    "DOGE/USDT:USDT",
+    "SOL/USDT:USDT",
+    "XRP/USDT:USDT",
+    "LINK/USDT:USDT",
+    "ADA/USDT:USDT",
+)
 
 
 def parse_rank_metrics(raw: str) -> list[str]:
@@ -189,6 +197,30 @@ def _minmax_normalize(values: list[float]) -> list[float]:
     return [(v - lo) / (hi - lo) for v in values]
 
 
+def _resolve_active_metrics(
+    requested: list[str],
+    weights: list[float],
+    eligible: list[tuple[str, dict[str, float]]],
+    *,
+    min_coverage: float = 0.05,
+) -> tuple[list[str], list[float]]:
+    """Keep rank metrics that at least ``min_coverage`` fraction of eligible symbols support."""
+    if not eligible:
+        return [], []
+    n = len(eligible)
+    active: list[str] = []
+    active_weights: list[float] = []
+    for metric, weight in zip(requested, weights, strict=True):
+        have = sum(1 for _sym, mv in eligible if metric in mv)
+        if have >= max(1, int(n * min_coverage)):
+            active.append(metric)
+            active_weights.append(weight)
+    if not active:
+        return [], []
+    total = sum(active_weights)
+    return active, [w / total for w in active_weights]
+
+
 def _composite_rank_score(
     metric_values: dict[str, float],
     *,
@@ -199,10 +231,29 @@ def _composite_rank_score(
 ) -> float:
     total = 0.0
     for metric, weight in zip(metrics, weights, strict=True):
+        if metric not in metric_values:
+            continue
         total += weight * norm_by_metric[metric][symbol]
-    # Tie-breaker: keep raw abs_change if present
     tie = abs(metric_values.get("abs_change", metric_values.get("change", 0.0)))
     return total + tie * 1e-9
+
+
+def _fallback_candidates(
+    ex: ccxt.binanceusdm,
+    *,
+    exclude: set[str],
+    count: int,
+) -> list[str]:
+    out: list[str] = []
+    for sym in _FALLBACK_CANDIDATES:
+        if sym in exclude:
+            continue
+        if sym not in ex.markets or not _is_usdt_linear_perp(ex.markets[sym]):
+            continue
+        out.append(sym)
+        if len(out) >= count:
+            break
+    return out
 
 
 def select_top_usdm_candidates(
@@ -226,6 +277,10 @@ def select_top_usdm_candidates(
     except ccxt.BaseError as e:
         logger.warning("fetch_tickers failed for auto candidates (%s)", e)
         tickers = {}
+    if not tickers:
+        logger.warning(
+            "fetch_tickers returned empty — volume floor skipped; check network/API access to fapi.binance.com"
+        )
 
     affordable = affordable_max_notional_usdt(
         settings, equity_usdt=equity_usdt, available_margin_usdt=available_margin_usdt
@@ -245,7 +300,7 @@ def select_top_usdm_candidates(
         ticker = tickers.get(sym) or {}
         if min_vol > 0:
             qv = _ticker_quote_volume_usdt(ticker)
-            if qv < min_vol:
+            if qv > 0 and qv < min_vol:
                 continue
         last = ticker.get("last") or ticker.get("close")
         try:
@@ -270,15 +325,27 @@ def select_top_usdm_candidates(
         metric_values: dict[str, float] = {}
         for metric in metrics:
             score = _rank_score(metric, symbol=sym, ticker=ticker, last=last_f, refresh_seed=refresh_seed)
-            if score is None:
-                metric_values = {}
-                break
-            metric_values[metric] = score
+            if score is not None:
+                metric_values[metric] = score
         if metric_values:
             eligible.append((sym, metric_values))
 
+    active_metrics, active_weights = _resolve_active_metrics(metrics, weights, eligible)
+    if not active_metrics:
+        logger.warning(
+            "auto candidates: no rank metrics had data (requested %s); using fallback list",
+            ",".join(metrics),
+        )
+    else:
+        if set(active_metrics) != set(metrics):
+            logger.info(
+                "auto candidates: using metrics with data only: %s (requested %s)",
+                ",".join(active_metrics),
+                ",".join(metrics),
+            )
+
     norm_by_metric: dict[str, dict[str, float]] = {}
-    for metric in metrics:
+    for metric in active_metrics:
         vals = [mv[metric] for _sym, mv in eligible]
         norms = _minmax_normalize(vals)
         norm_by_metric[metric] = {sym: norms[i] for i, (sym, _mv) in enumerate(eligible)}
@@ -287,8 +354,8 @@ def select_top_usdm_candidates(
     for sym, metric_values in eligible:
         composite = _composite_rank_score(
             metric_values,
-            metrics=metrics,
-            weights=weights,
+            metrics=active_metrics,
+            weights=active_weights,
             norm_by_metric=norm_by_metric,
             symbol=sym,
         )
@@ -299,22 +366,31 @@ def select_top_usdm_candidates(
     picked = [sym for _score, sym in rows[:count]]
     if len(picked) < 2:
         logger.warning(
-            "auto candidates found only %s symbols (need ≥2); relax filters or SYMBOL_CANDIDATES_EXCLUDE",
+            "auto candidates found only %s symbols after filters (eligible=%s, affordable≈%.2f USDT); "
+            "using fallback",
             len(picked),
+            len(eligible),
+            affordable,
         )
+        picked = _fallback_candidates(ex, exclude=exclude, count=count)
     if picked:
         raw_map = {sym: mv for sym, mv in eligible}
         bits: list[str] = []
         for sym in picked:
-            mv = raw_map[sym]
-            detail = "+".join(f"{m}:{_format_score(m, mv[m])}" for m in metrics if m in mv)
-            bits.append(f"{sym}({detail})")
-        weight_s = ",".join(f"{m}={w:.2f}" for m, w in zip(metrics, weights, strict=True))
+            mv = raw_map.get(sym, {})
+            if mv:
+                detail = "+".join(
+                    f"{m}:{_format_score(m, mv[m])}" for m in active_metrics if m in mv
+                )
+                bits.append(f"{sym}({detail})")
+            else:
+                bits.append(f"{sym}(fallback)")
+        weight_s = ",".join(f"{m}={w:.2f}" for m, w in zip(active_metrics, active_weights, strict=True))
         logger.info(
             "auto SYMBOL_CANDIDATES top %s composite [%s] weights [%s] (min_quote_vol=%.0f): %s",
             len(picked),
-            ",".join(metrics),
-            weight_s,
+            ",".join(active_metrics) if active_metrics else "fallback",
+            weight_s if active_metrics else "n/a",
             min_vol,
             ", ".join(bits),
         )
@@ -351,9 +427,19 @@ class CandidatePool:
                 available_margin_usdt=margin,
             )
             if len(picked) < 2:
+                picked = _fallback_candidates(
+                    ex,
+                    exclude={
+                        s.strip()
+                        for s in parse_symbol_candidates(self._settings.symbol_candidates_exclude)
+                        if s.strip()
+                    },
+                    count=int(self._settings.symbol_candidates_count),
+                )
+            if len(picked) < 2:
                 raise RuntimeError(
-                    "auto SYMBOL_CANDIDATES returned fewer than 2 symbols; "
-                    "relax SYMBOL_CANDIDATES_MIN_QUOTE_VOLUME_USDT or SYMBOL_CANDIDATES_EXCLUDE"
+                    "auto SYMBOL_CANDIDATES could not resolve ≥2 symbols; "
+                    "set SYMBOL_CANDIDATES to a manual list or fix Binance API connectivity"
                 )
             self._symbols = picked
         else:

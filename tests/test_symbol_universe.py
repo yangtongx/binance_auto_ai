@@ -112,6 +112,37 @@ def test_composite_rank_prefers_high_on_both_metrics() -> None:
     assert picked[0] == "BBB/USDT:USDT"
 
 
+def test_composite_skips_missing_open_interest() -> None:
+    """open_interest missing in tickers must not zero out the whole universe."""
+    ex = _FakeEx()
+    ex.markets = {
+        "DOGE/USDT:USDT": _mkt("DOGE/USDT:USDT"),
+        "SOL/USDT:USDT": _mkt("SOL/USDT:USDT"),
+        "XRP/USDT:USDT": _mkt("XRP/USDT:USDT"),
+    }
+    ex._tickers = {
+        "DOGE/USDT:USDT": {"last": 0.2, "percentage": 9.0, "quoteVolume": 1e8},
+        "SOL/USDT:USDT": {"last": 150.0, "percentage": 2.0, "quoteVolume": 1e9},
+        "XRP/USDT:USDT": {"last": 0.5, "percentage": 4.0, "quoteVolume": 5e8},
+    }
+    s = Settings.model_construct(
+        symbol_mode="signal_pick",
+        symbol_candidates="auto",
+        symbol_candidates_count=2,
+        symbol_candidates_rank_by="abs_change,open_interest",
+        symbol_candidates_rank_weights="0.5,0.5",
+        symbol_candidates_min_quote_volume_usdt=0.0,
+        symbol_candidates_exclude="",
+        symbol_candidates_filter_min_notional=False,
+        max_notional_usdt=10_000.0,
+        position_sizing="fixed",
+        strategy_size_pct=100.0,
+    )
+    picked = select_top_usdm_candidates(ex, s)  # type: ignore[arg-type]
+    assert len(picked) >= 2
+    assert picked[0] == "DOGE/USDT:USDT"
+
+
 def test_affordable_margin_sizing_cap() -> None:
     s = Settings.model_construct(
         max_notional_usdt=10_000.0,
