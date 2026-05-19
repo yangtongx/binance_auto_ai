@@ -41,6 +41,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 _corr_log_counter = 0
+_non_whitelist_flat_dry_run_notified: set[str] = set()
 
 _stop_requested = False
 
@@ -188,6 +189,17 @@ def _tick_signal_pick(
     session.on_tick(current_usdt_equity=equity)
     session.warn_if_drawdown_near_limit(current_equity=equity)
     for step in steps:
+        if "non-whitelist" in (step.signal.reason or ""):
+            if settings.dry_run:
+                if step.symbol in _non_whitelist_flat_dry_run_notified:
+                    continue
+                _non_whitelist_flat_dry_run_notified.add(step.symbol)
+                logger.warning(
+                    "Account still has %s outside the candidate pool; dry_run does not send orders. "
+                    "Close it on Binance, or set DRY_RUN=false to let the bot FLAT once.",
+                    step.symbol,
+                )
+                continue
         logger.info("signal_pick execute: %s %s", step.symbol, step.signal.model_dump())
         _run_trade_step(
             ex,

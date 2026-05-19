@@ -148,29 +148,27 @@ def start_observability_background(host: str, port: int) -> threading.Thread:
         def log_message(self, _format: str, *_args: object) -> None:
             return
 
+        def _send_body(self, code: int, body: bytes, content_type: str) -> None:
+            try:
+                self.send_response(code)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # Browser/curl closed early; ignore (common for /health polls).
+                pass
+
         def do_GET(self) -> None:  # noqa: N802
             path = urlparse(self.path).path or "/"
             if path in ("/", "/dashboard"):
-                body = _DASHBOARD_HTML.encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_body(200, _DASHBOARD_HTML.encode("utf-8"), "text/html; charset=utf-8")
             elif path == "/health":
                 body = json.dumps(metrics.snapshot(), indent=2).encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_body(200, body, "application/json; charset=utf-8")
             elif path == "/metrics":
                 body = metrics.prometheus_text().encode("utf-8")
-                self.send_response(200)
-                self.send_header("Content-Type", "text/plain; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_body(200, body, "text/plain; charset=utf-8")
             else:
                 self.send_error(404, "Not Found")
 
