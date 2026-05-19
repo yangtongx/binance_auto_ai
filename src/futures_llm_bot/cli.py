@@ -35,7 +35,13 @@ from futures_llm_bot.symbol_picker import (
     resolve_held_symbol,
 )
 from futures_llm_bot.symbol_universe import CandidatePool
-from futures_llm_bot.telegram_notify import send_telegram_trade_signal
+from futures_llm_bot.telegram_notify import (
+    notify_bot_started,
+    notify_candidate_pool_refresh,
+    notify_real_order,
+    notify_tick_error,
+    send_telegram_trade_signal,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -158,6 +164,10 @@ def _run_trade_step(
             detail=gate,
         )
         return False
+    def _on_real_order() -> None:
+        metrics.record_real_order()
+        notify_real_order(settings, symbol=symbol, signal=signal, source=src)
+
     execute_signal(
         ex,
         settings,
@@ -167,7 +177,7 @@ def _run_trade_step(
         equity_usdt=equity,
         available_margin_usdt=available_margin,
         session=session,
-        on_real_order=metrics.record_real_order,
+        on_real_order=_on_real_order,
     )
     dashboard_state.append_decision(
         symbol=symbol,
@@ -354,6 +364,7 @@ def _tick(
     except Exception as e:
         metrics.record_tick_failed(repr(e))
         dashboard_state.append_event(f"tick failed: {e!r}")
+        notify_tick_error(settings, repr(e))
         raise
     else:
         metrics.record_tick_completed()
@@ -388,6 +399,11 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
     boot_syms = candidate_pool.symbols() if candidate_pool is not None else None
     dashboard_state.set_boot_config(settings, candidate_symbols=boot_syms)
     dashboard_state.append_event("bot started")
+    notify_bot_started(
+        settings,
+        symbols=boot_syms or [settings.symbol],
+        strategy_label=_strategy_log_label(settings) if settings.signal_source == "strategy" else "llm",
+    )
     rule_strategy: Strategy | None = None
     if settings.signal_source == "strategy":
         rule_strategy = build_live_strategy(settings)
@@ -467,6 +483,7 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
                     syms = candidate_pool.symbols()
                     dashboard_state.set_candidates(syms)
                     dashboard_state.append_event("candidate pool refreshed: " + ", ".join(syms))
+                    notify_candidate_pool_refresh(settings, syms)
                     for sym in syms:
                         apply_symbol_leverage(ex, settings, symbol=sym)
                 except Exception:

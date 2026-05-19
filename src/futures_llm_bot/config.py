@@ -31,6 +31,8 @@ _DOCKER_SECRET_MAP = {
     "BINANCE_API_KEY": "BINANCE_API_KEY_FILE",
     "BINANCE_API_SECRET": "BINANCE_API_SECRET_FILE",
     "OPENAI_API_KEY": "OPENAI_API_KEY_FILE",
+    "TELEGRAM_BOT_TOKEN": "TELEGRAM_BOT_TOKEN_FILE",
+    "TELEGRAM_CHAT_ID": "TELEGRAM_CHAT_ID_FILE",
 }
 
 
@@ -150,6 +152,12 @@ class Settings(BaseSettings):
     telegram_template: str = Field(default="default", validation_alias="TELEGRAM_TEMPLATE")
     telegram_message_template: str = Field(default="", validation_alias="TELEGRAM_MESSAGE_TEMPLATE")
     telegram_parse_mode: str = Field(default="", validation_alias="TELEGRAM_PARSE_MODE")
+    # all | directional (long/short/flat, skip hold) | off
+    telegram_notify_signals: str = Field(default="directional", validation_alias="TELEGRAM_NOTIFY_SIGNALS")
+    telegram_notify_startup: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_STARTUP")
+    telegram_notify_pool_refresh: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_POOL_REFRESH")
+    telegram_notify_orders: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_ORDERS")
+    telegram_notify_errors: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_ERRORS")
 
     use_websocket: bool = Field(default=False, validation_alias="USE_WEBSOCKET")
     ws_reconnect_base_sec: float = Field(default=1.0, gt=0.0, le=120.0, validation_alias="WS_RECONNECT_BASE_SEC")
@@ -274,6 +282,18 @@ class Settings(BaseSettings):
     @classmethod
     def _telegram_parse_mode_in(cls, v: object) -> str:
         return str(v).strip()
+
+    @field_validator("telegram_notify_signals", mode="before")
+    @classmethod
+    def _telegram_notify_signals_in(cls, v: object) -> str:
+        return str(v).strip().lower()
+
+    @field_validator("telegram_notify_signals")
+    @classmethod
+    def _telegram_notify_signals_valid(cls, v: str) -> str:
+        if v not in ("all", "directional", "off"):
+            raise ValueError("TELEGRAM_NOTIFY_SIGNALS must be all, directional, or off")
+        return v
 
     @field_validator("composite_mode", mode="before")
     @classmethod

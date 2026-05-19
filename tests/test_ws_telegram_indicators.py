@@ -7,6 +7,7 @@ from futures_llm_bot.binance_kline_ws import reconnect_delay_sec
 from futures_llm_bot.config import Settings
 from futures_llm_bot.schemas import Action, LLMSignal
 from futures_llm_bot.telegram_format import format_trade_message
+from futures_llm_bot.telegram_notify import should_notify_trade_signal
 
 
 def test_reconnect_delay_monotonic() -> None:
@@ -15,6 +16,18 @@ def test_reconnect_delay_monotonic() -> None:
     assert d2 >= d1
     dcap = reconnect_delay_sec(99, base_sec=1.0, max_sec=10.0, jitter_frac=0.0)
     assert dcap == 10.0
+
+
+def test_should_notify_trade_signal_modes() -> None:
+    sig_hold = LLMSignal(action=Action.HOLD, size_pct=0.0, confidence=0.5, reason="wait")
+    sig_long = LLMSignal(action=Action.LONG, size_pct=10.0, confidence=0.8, reason="go")
+    s_all = Settings(telegram_notify_signals="all")
+    s_dir = Settings(telegram_notify_signals="directional")
+    s_off = Settings(telegram_notify_signals="off")
+    assert should_notify_trade_signal(s_all, sig_hold) is True
+    assert should_notify_trade_signal(s_dir, sig_hold) is False
+    assert should_notify_trade_signal(s_dir, sig_long) is True
+    assert should_notify_trade_signal(s_off, sig_long) is False
 
 
 def test_format_trade_message_default() -> None:

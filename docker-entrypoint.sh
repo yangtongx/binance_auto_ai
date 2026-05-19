@@ -19,6 +19,8 @@ if [ "$(id -u)" = "0" ]; then
   _load_one BINANCE_API_KEY /run/secrets/binance_api_key
   _load_one BINANCE_API_SECRET /run/secrets/binance_api_secret
   _load_one OPENAI_API_KEY /run/secrets/openai_api_key
+  _load_one TELEGRAM_BOT_TOKEN /run/secrets/telegram_bot_token
+  _load_one TELEGRAM_CHAT_ID /run/secrets/telegram_chat_id
   exec gosu bot:bot "$@"
 fi
 

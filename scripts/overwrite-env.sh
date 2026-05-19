@@ -26,5 +26,11 @@ else
   echo "  chmod 600 secrets/binance_api_*"
 fi
 
+if [[ -s "$ROOT/secrets/telegram_bot_token" && -s "$ROOT/secrets/telegram_chat_id" ]]; then
+  echo "Telegram: secrets/ present — do not set TELEGRAM_BOT_TOKEN in .env"
+else
+  echo "Telegram (optional): bash scripts/install-telegram-secrets.sh -i"
+fi
+
 echo "Next: docker compose run --rm bot python -m futures_llm_bot.cli --smoke"
 echo "      docker compose up -d --build"
