@@ -10,7 +10,7 @@ import urllib.request
 
 from futures_llm_bot.config import Settings
 from futures_llm_bot.schemas import Action, LLMSignal
-from futures_llm_bot.telegram_format import format_trade_message
+from futures_llm_bot.telegram_format import SEPARATOR, format_trade_message, short_symbol
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,14 @@ def send_telegram_trade_signal(
     send_telegram_message(settings, text)
 
 
+def _format_symbol_list(symbols: list[str], *, max_shown: int = 10) -> str:
+    shown = [f"• {short_symbol(s)}" for s in symbols[:max_shown]]
+    extra = len(symbols) - max_shown
+    if extra > 0:
+        shown.append(f"… 还有 {extra} 个")
+    return "\n".join(shown) if shown else "—"
+
+
 def notify_bot_started(
     settings: Settings,
     *,
@@ -79,14 +87,17 @@ def notify_bot_started(
 ) -> None:
     if not settings.telegram_notify_startup or not telegram_configured(settings):
         return
-    sym_text = ", ".join(symbols[:10])
-    if len(symbols) > 10:
-        sym_text += f" …(+{len(symbols) - 10})"
+    mode_label = "模拟" if settings.dry_run else "实盘"
+    net_label = "testnet" if settings.binance_testnet else "mainnet"
     text = (
-        "🤖 futures-llm-bot 已启动\n"
-        f"testnet={settings.binance_testnet} dry_run={settings.dry_run}\n"
-        f"mode={settings.symbol_mode} signal={settings.signal_source} strategy={strategy_label}\n"
-        f"symbols: {sym_text or settings.symbol}"
+        f"🚀 futures-llm-bot 已启动\n"
+        f"{SEPARATOR}\n"
+        f"模式  {settings.symbol_mode} · {mode_label}\n"
+        f"信号  {settings.signal_source} · {strategy_label}\n"
+        f"环境  {net_label} · {settings.timeframe}\n"
+        f"{SEPARATOR}\n"
+        f"候选池 ({len(symbols)})\n"
+        f"{_format_symbol_list(symbols)}"
     )
     send_telegram_message(settings, text)
 
@@ -94,7 +105,12 @@ def notify_bot_started(
 def notify_candidate_pool_refresh(settings: Settings, symbols: list[str]) -> None:
     if not settings.telegram_notify_pool_refresh or not telegram_configured(settings):
         return
-    send_telegram_message(settings, "📋 候选池刷新\n" + ", ".join(symbols))
+    text = (
+        f"📋 候选池刷新 ({len(symbols)})\n"
+        f"{SEPARATOR}\n"
+        f"{_format_symbol_list(symbols)}"
+    )
+    send_telegram_message(settings, text)
 
 
 def notify_real_order(
@@ -108,7 +124,7 @@ def notify_real_order(
         return
     sym_settings = settings.model_copy(update={"symbol": symbol})
     base = format_trade_message(sym_settings, signal, source=source)
-    send_telegram_message(settings, "✅ 实盘下单\n" + base)
+    send_telegram_message(settings, f"✅ 实盘下单\n{SEPARATOR}\n{base}")
 
 
 def notify_tick_error(settings: Settings, message: str) -> None:
@@ -119,4 +135,5 @@ def notify_tick_error(settings: Settings, message: str) -> None:
     if now - _last_error_notify_monotonic < _ERROR_NOTIFY_COOLDOWN_SEC:
         return
     _last_error_notify_monotonic = now
-    send_telegram_message(settings, "⚠️ tick 异常\n" + message[:1500])
+    text = f"⚠️ tick 异常\n{SEPARATOR}\n{message[:1500]}"
+    send_telegram_message(settings, text)

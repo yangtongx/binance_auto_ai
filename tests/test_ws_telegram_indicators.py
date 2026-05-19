@@ -34,8 +34,8 @@ def test_format_trade_message_default() -> None:
     s = Settings(telegram_template="compact")
     sig = LLMSignal(action=Action.LONG, size_pct=50.0, confidence=0.7, reason="test")
     msg = format_trade_message(s, sig, source="strategy", equity_usdt=123.4567)
-    assert "BTC/USDT:USDT" in msg or "BTC" in msg
-    assert "long" in msg
+    assert "BTC/USDT" in msg
+    assert "\u505a\u591a" in msg  # zh: 做多
 
 
 def test_stochastic_cross_state_defined() -> None:

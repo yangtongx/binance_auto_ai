@@ -415,7 +415,13 @@ class CandidatePool:
         if not self.is_auto:
             return False
         age_s = time.monotonic() - self._last_refresh_monotonic
-        return age_s >= float(self._settings.symbol_candidates_refresh_hours) * 3600.0
+        return age_s >= self._refresh_interval_sec()
+
+    def _refresh_interval_sec(self) -> float:
+        minutes = float(self._settings.symbol_candidates_refresh_minutes)
+        if minutes > 0.0:
+            return minutes * 60.0
+        return float(self._settings.symbol_candidates_refresh_hours) * 3600.0
 
     def refresh(self, ex: ccxt.binanceusdm) -> list[str]:
         if self.is_auto:

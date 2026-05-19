@@ -198,6 +198,13 @@ class Settings(BaseSettings):
         le=168.0,
         validation_alias="SYMBOL_CANDIDATES_REFRESH_HOURS",
     )
+    # If > 0, overrides ``SYMBOL_CANDIDATES_REFRESH_HOURS``. Use for sub-hour refresh.
+    symbol_candidates_refresh_minutes: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=24.0 * 60.0,
+        validation_alias="SYMBOL_CANDIDATES_REFRESH_MINUTES",
+    )
     symbol_candidates_filter_min_notional: bool = Field(
         default=True,
         validation_alias="SYMBOL_CANDIDATES_FILTER_MIN_NOTIONAL",

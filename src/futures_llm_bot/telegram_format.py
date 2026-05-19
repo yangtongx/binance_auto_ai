@@ -8,46 +8,70 @@ from futures_llm_bot.config import Settings
 from futures_llm_bot.schemas import LLMSignal
 
 _ACTION_EMOJI = {
-    "long": "▲",
-    "short": "▼",
-    "hold": "◆",
-    "flat": "■",
+    "long": "🟢",
+    "short": "🔴",
+    "hold": "⚪",
+    "flat": "⚫",
 }
 
-# Keys: symbol, source, action, size_pct, confidence, reason, timeframe, dry_run, equity_usdt, emoji
+_ACTION_CN = {
+    "long": "做多",
+    "short": "做空",
+    "hold": "观望",
+    "flat": "平仓",
+}
+
+SEPARATOR = "━━━━━━━━━━━━━━━━━━━━"
+
+# Keys: symbol, short_symbol, source, action, action_cn, size_pct, confidence, reason,
+#       timeframe, dry_run, mode_label, equity_usdt, equity_line, emoji, separator
 TEMPLATES: dict[str, str] = {
     "default": (
-        "{emoji} {symbol}\n"
-        "[{source}] {action} {size_pct:.0f}%\n"
-        "conf={confidence:.2f}\n"
-        "{reason}\n"
-        "TF={timeframe} dry_run={dry_run} equity={equity_usdt}"
+        "{emoji} {action_cn} · {short_symbol}\n"
+        "{separator}\n"
+        "策略  {source} · {mode_label}\n"
+        "仓位  {size_pct:.0f}% · 置信度 {confidence:.2f}\n"
+        "周期  {timeframe}{equity_line}\n"
+        "原因  {reason}"
     ),
-    "compact": "{emoji} {symbol} {action} {confidence:.0f}% — {reason}",
-    "oneline": "{emoji} {symbol} | {action} | {reason}",
+    "compact": "{emoji} {short_symbol} {action_cn} {confidence:.0%} — {reason}",
+    "oneline": "{emoji} {short_symbol} | {action_cn} | {reason}",
     "html": (
-        "{emoji} <b>{symbol}</b>\n"
-        "[{source}] <code>{action}</code> {size_pct:.0f}%\n"
-        "conf={confidence:.2f}\n"
+        "{emoji} <b>{action_cn}</b> · <b>{short_symbol}</b>\n"
+        "<code>{source}</code> · {mode_label}\n"
+        "仓位 {size_pct:.0f}% · 置信度 {confidence:.2f}\n"
         "{reason}"
     ),
 }
 
 
+def short_symbol(symbol: str) -> str:
+    """``DOGE/USDT:USDT`` -> ``DOGE/USDT``."""
+    return symbol.split(":", 1)[0] if symbol else symbol
+
+
 def build_trade_context(settings: Settings, signal: LLMSignal, **kwargs: object) -> dict[str, object]:
     eq = kwargs.get("equity_usdt")
-    eq_s = f"{float(eq):.4f}" if isinstance(eq, (int, float)) else str(eq or "")
+    eq_s = f"{float(eq):.2f}" if isinstance(eq, (int, float)) else str(eq or "")
+    eq_line = f" · 权益 {eq_s} USDT" if eq_s else ""
+    mode_label = "模拟" if settings.dry_run else "实盘"
+    action_value = signal.action.value
     return {
         "symbol": settings.symbol,
+        "short_symbol": short_symbol(settings.symbol),
         "source": kwargs.get("source", ""),
-        "action": signal.action.value,
+        "action": action_value,
+        "action_cn": _ACTION_CN.get(action_value, action_value),
         "size_pct": float(signal.size_pct),
         "confidence": float(signal.confidence),
-        "reason": signal.reason or "",
+        "reason": signal.reason or "—",
         "timeframe": settings.timeframe,
         "dry_run": str(settings.dry_run),
+        "mode_label": mode_label,
         "equity_usdt": eq_s,
-        "emoji": _ACTION_EMOJI.get(signal.action.value, ""),
+        "equity_line": eq_line,
+        "emoji": _ACTION_EMOJI.get(action_value, ""),
+        "separator": SEPARATOR,
     }
 
 
