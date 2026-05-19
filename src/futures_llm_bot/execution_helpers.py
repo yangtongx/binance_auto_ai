@@ -8,7 +8,13 @@ from typing import Callable
 import ccxt
 
 from futures_llm_bot.config import Settings
-from futures_llm_bot.order_utils import amount_respects_limits, notional_to_amount, place_order, wait_for_legs
+from futures_llm_bot.order_utils import (
+    amount_respects_limits,
+    format_amount_limits_skip,
+    notional_to_amount,
+    place_order,
+    wait_for_legs,
+)
 from futures_llm_bot.positions import PositionLegs, fetch_position_legs, mark_last_usdt
 from futures_llm_bot.schemas import Action, LLMSignal
 from futures_llm_bot.session_risk import SessionRisk
@@ -16,11 +22,56 @@ from futures_llm_bot.session_risk import SessionRisk
 logger = logging.getLogger(__name__)
 
 
-def directional_notional_or_skip(settings: Settings, signal: LLMSignal) -> float | None:
+def directional_notional_or_skip(
+    settings: Settings,
+    signal: LLMSignal,
+    *,
+    equity_usdt: float | None = None,
+    available_margin_usdt: float | None = None,
+) -> float | None:
     """Return USDT notional intent for LONG/SHORT; log and return ``None`` if not applicable or zero."""
     if signal.action not in (Action.LONG, Action.SHORT):
         return None
-    requested = settings.max_notional_usdt * (signal.size_pct / 100.0)
+    pct = signal.size_pct / 100.0
+    if settings.position_sizing == "equity_leverage":
+        if equity_usdt is None or equity_usdt <= 0:
+            logger.warning(
+                "directional trade skipped — wallet USDT total unavailable for POSITION_SIZING=equity_leverage"
+            )
+            return None
+        base = float(equity_usdt)
+        label = "wallet_total"
+    elif settings.position_sizing == "available_margin_leverage":
+        if available_margin_usdt is None or available_margin_usdt <= 0:
+            logger.warning(
+                "directional trade skipped — available USDT margin unavailable for "
+                "POSITION_SIZING=available_margin_leverage"
+            )
+            return None
+        base = float(available_margin_usdt)
+        label = "available_margin"
+    elif settings.position_sizing == "fixed":
+        requested = settings.max_notional_usdt * pct
+        if requested <= 0:
+            logger.info("directional trade skipped — requested notional<=0")
+            return None
+        return requested
+    else:
+        logger.warning("directional trade skipped — unknown POSITION_SIZING=%r", settings.position_sizing)
+        return None
+
+    requested = base * settings.leverage * pct
+    logger.info(
+        "position sizing %s: %s=%.4f leverage=%.0f size_pct=%.2f%% → notional≈%.4f USDT "
+        "(hard cap MAX_NOTIONAL_USDT=%.2f)",
+        settings.position_sizing,
+        label,
+        base,
+        settings.leverage,
+        signal.size_pct,
+        requested,
+        settings.max_notional_usdt,
+    )
     if requested <= 0:
         logger.info("directional trade skipped — requested notional<=0")
         return None
@@ -87,7 +138,13 @@ def open_market_within_notional_cap(
         return
     amount, _ = notional_to_amount(ex, symbol, target_notional, last=last)
     if not amount_respects_limits(ex, symbol, amount, last=last):
-        logger.info(skip_limits_log, amount)
+        logger.warning(
+            "%s — %s",
+            skip_limits_log % (amount,),
+            format_amount_limits_skip(
+                ex, symbol, amount=amount, last=last, notional_usdt=target_notional
+            ),
+        )
         return
     logger.info(success_log, amount, target_notional, room)
     place_order(

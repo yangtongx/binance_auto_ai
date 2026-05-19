@@ -8,7 +8,11 @@ from typing import Callable
 import ccxt
 
 from futures_llm_bot.config import Settings
-from futures_llm_bot.exchange_env import apply_binance_usdm_environment, configure_binance_usdm_exchange
+from futures_llm_bot.exchange_env import (
+    apply_binance_usdm_environment,
+    apply_ccxt_proxy_config,
+    configure_binance_usdm_exchange,
+)
 from futures_llm_bot.execution_hedge import execute_hedged
 from futures_llm_bot.execution_oneway import execute_oneway
 from futures_llm_bot.positions import fetch_position_legs, mark_last_usdt
@@ -19,15 +23,15 @@ logger = logging.getLogger(__name__)
 
 
 def build_exchange(settings: Settings) -> ccxt.binanceusdm:
-    ex = ccxt.binanceusdm(
-        {
-            "apiKey": settings.binance_api_key,
-            "secret": settings.binance_api_secret,
-            "enableRateLimit": True,
-            "timeout": settings.exchange_timeout_ms,
-            "options": {},
-        }
-    )
+    cfg: dict = {
+        "apiKey": settings.binance_api_key,
+        "secret": settings.binance_api_secret,
+        "enableRateLimit": True,
+        "timeout": settings.exchange_timeout_ms,
+        "options": {},
+    }
+    apply_ccxt_proxy_config(settings, cfg)
+    ex = ccxt.binanceusdm(cfg)
     configure_binance_usdm_exchange(ex)
     apply_binance_usdm_environment(ex, testnet=settings.binance_testnet)
     return ex
@@ -57,6 +61,9 @@ def execute_signal(
     signal: LLMSignal,
     *,
     account_hedged: bool,
+    symbol: str | None = None,
+    equity_usdt: float | None = None,
+    available_margin_usdt: float | None = None,
     session: SessionRisk | None = None,
     on_real_order: Callable[[], None] | None = None,
 ) -> None:
@@ -64,16 +71,33 @@ def execute_signal(
         logger.info("HOLD — no order")
         return
 
-    symbol = settings.symbol
-    legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
+    active_settings = settings.model_copy(update={"symbol": symbol}) if symbol else settings
+    symbol = active_settings.symbol
+    legs = fetch_position_legs(ex, symbol, dry_run=active_settings.dry_run)
     last = mark_last_usdt(ex, symbol)
 
     if account_hedged:
         execute_hedged(
-            ex, settings, signal, session=session, legs=legs, last=last, on_real_order=on_real_order
+            ex,
+            active_settings,
+            signal,
+            session=session,
+            legs=legs,
+            last=last,
+            equity_usdt=equity_usdt,
+            available_margin_usdt=available_margin_usdt,
+            on_real_order=on_real_order,
         )
         return
 
     execute_oneway(
-        ex, settings, signal, session=session, legs=legs, last=last, on_real_order=on_real_order
+        ex,
+        active_settings,
+        signal,
+        session=session,
+        legs=legs,
+        last=last,
+        equity_usdt=equity_usdt,
+        available_margin_usdt=available_margin_usdt,
+        on_real_order=on_real_order,
     )

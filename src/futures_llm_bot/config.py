@@ -68,7 +68,9 @@ class Settings(BaseSettings):
 
     binance_api_key: str = Field(default="", validation_alias="BINANCE_API_KEY")
     binance_api_secret: str = Field(default="", validation_alias="BINANCE_API_SECRET")
-    binance_testnet: bool = Field(default=True, validation_alias="BINANCE_TESTNET")
+    binance_testnet: bool = Field(default=False, validation_alias="BINANCE_TESTNET")
+    # Local Clash/SSR: http://127.0.0.1:7890 or socks5://127.0.0.1:1080 (socks needs PySocks)
+    binance_https_proxy: str = Field(default="", validation_alias="BINANCE_HTTPS_PROXY")
 
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
     openai_base_url: str | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
@@ -155,9 +157,51 @@ class Settings(BaseSettings):
     ws_reconnect_jitter: float = Field(default=0.25, ge=0.0, le=1.0, validation_alias="WS_RECONNECT_JITTER")
 
     symbol: str = Field(default="BTC/USDT:USDT", validation_alias="SYMBOL")
+    # single: trade SYMBOL only. signal_pick: SYMBOL_CANDIDATES whitelist, strongest signal each minute, one position.
+    symbol_mode: str = Field(default="single", validation_alias="SYMBOL_MODE")
+    symbol_candidates: str = Field(
+        default="auto",
+        validation_alias="SYMBOL_CANDIDATES",
+    )
+    symbol_candidates_count: int = Field(default=5, ge=2, le=12, validation_alias="SYMBOL_CANDIDATES_COUNT")
+    # Comma-separated composite rank: abs_change,open_interest,liquidity (liquidity=24h quote volume)
+    symbol_candidates_rank_by: str = Field(
+        default="abs_change,open_interest,liquidity",
+        validation_alias="SYMBOL_CANDIDATES_RANK_BY",
+    )
+    # Weights matching RANK_BY order. Empty = equal split.
+    symbol_candidates_rank_weights: str = Field(
+        default="0.4,0.3,0.3",
+        validation_alias="SYMBOL_CANDIDATES_RANK_WEIGHTS",
+    )
+    # Liquidity floor only (not ranking). Set 0 to disable when not ranking by volume.
+    symbol_candidates_min_quote_volume_usdt: float = Field(
+        default=1_000_000.0,
+        ge=0.0,
+        validation_alias="SYMBOL_CANDIDATES_MIN_QUOTE_VOLUME_USDT",
+    )
+    symbol_candidates_exclude: str = Field(
+        default="BTC/USDT:USDT,ETH/USDT:USDT",
+        validation_alias="SYMBOL_CANDIDATES_EXCLUDE",
+    )
+    symbol_candidates_refresh_hours: float = Field(
+        default=2.0,
+        gt=0.0,
+        le=168.0,
+        validation_alias="SYMBOL_CANDIDATES_REFRESH_HOURS",
+    )
+    symbol_candidates_filter_min_notional: bool = Field(
+        default=True,
+        validation_alias="SYMBOL_CANDIDATES_FILTER_MIN_NOTIONAL",
+    )
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
     max_notional_usdt: float = Field(default=50.0, gt=0, validation_alias="MAX_NOTIONAL_USDT")
+    # fixed: MAX_NOTIONAL_USDT × size_pct.
+    # equity_leverage: wallet total × LEVERAGE × size_pct.
+    # available_margin_leverage: available margin × LEVERAGE × size_pct (recommended for live).
+    position_sizing: str = Field(default="fixed", validation_alias="POSITION_SIZING")
+    leverage: float = Field(default=1.0, ge=1.0, le=150.0, validation_alias="LEVERAGE")
     dry_run: bool = Field(default=True, validation_alias="DRY_RUN")
 
     min_confidence: float = Field(default=0.55, ge=0.0, le=1.0, validation_alias="MIN_CONFIDENCE")
@@ -176,6 +220,13 @@ class Settings(BaseSettings):
 
     observability_host: str = Field(default="127.0.0.1", validation_alias="OBSERVABILITY_HOST")
     observability_port: int = Field(default=0, ge=0, le=65535, validation_alias="OBSERVABILITY_PORT")
+
+    @field_validator("binance_https_proxy", mode="before")
+    @classmethod
+    def _strip_proxy(cls, v: object) -> str:
+        if v is None:
+            return ""
+        return str(v).strip()
 
     @field_validator("binance_api_key", "binance_api_secret", "openai_api_key", mode="before")
     @classmethod
@@ -197,7 +248,14 @@ class Settings(BaseSettings):
             raise ValueError("OPENAI_BASE_URL must be an absolute http(s) URL with a host")
         return s
 
-    @field_validator("signal_source", "strategy_name", mode="before")
+    @field_validator(
+        "signal_source",
+        "strategy_name",
+        "position_sizing",
+        "symbol_mode",
+        "symbol_candidates_rank_by",
+        mode="before",
+    )
     @classmethod
     def _normalize_lowercase_choice(cls, v: object) -> str:
         return str(v).strip().lower()
@@ -233,6 +291,55 @@ class Settings(BaseSettings):
                 "RISK_CORR_AUX_SYMBOL must match CCXT linear perpetual form (e.g. ETH/USDT:USDT) or be empty"
             )
         return s
+
+    @model_validator(mode="after")
+    def _validate_symbol_mode_config(self) -> Settings:
+        if self.symbol_mode != "signal_pick":
+            return self
+        if self.signal_source != "strategy":
+            raise ValueError("SYMBOL_MODE=signal_pick requires SIGNAL_SOURCE=strategy (not llm)")
+        if self.use_websocket:
+            raise ValueError("SYMBOL_MODE=signal_pick does not support USE_WEBSOCKET=true")
+        from futures_llm_bot.symbol_picker import parse_symbol_candidates
+
+        if self.symbol_candidates_is_auto():
+            for sym in parse_symbol_candidates(self.symbol_candidates_exclude):
+                if sym and not _SYMBOL_RE.match(sym):
+                    raise ValueError(f"SYMBOL_CANDIDATES_EXCLUDE entry {sym!r} is invalid")
+            metrics = self.candidate_rank_metrics()
+            weights_raw = self.symbol_candidates_rank_weights.strip()
+            if weights_raw:
+                parts = [p for p in weights_raw.split(",") if p.strip()]
+                if len(parts) != len(metrics):
+                    raise ValueError(
+                        "SYMBOL_CANDIDATES_RANK_WEIGHTS must have one number per RANK_BY metric "
+                        f"(got {len(parts)} weights for {len(metrics)} metrics)"
+                    )
+                for p in parts:
+                    try:
+                        if float(p.strip()) < 0:
+                            raise ValueError
+                    except ValueError as e:
+                        raise ValueError(
+                            "SYMBOL_CANDIDATES_RANK_WEIGHTS must be non-negative numbers"
+                        ) from e
+            return self
+        cands = self.manual_candidate_symbols()
+        if len(cands) < 2:
+            raise ValueError(
+                "SYMBOL_MODE=signal_pick requires SYMBOL_CANDIDATES=auto or at least 2 manual symbols"
+            )
+        if len(cands) > 12:
+            raise ValueError("SYMBOL_CANDIDATES supports at most 12 manual symbols")
+        for sym in cands:
+            if not _SYMBOL_RE.match(sym):
+                raise ValueError(
+                    f"SYMBOL_CANDIDATES entry {sym!r} must match BASE/QUOTE:SETTLE (e.g. DOGE/USDT:USDT)"
+                )
+        for sym in parse_symbol_candidates(self.symbol_candidates_exclude):
+            if sym and not _SYMBOL_RE.match(sym):
+                raise ValueError(f"SYMBOL_CANDIDATES_EXCLUDE entry {sym!r} is invalid")
+        return self
 
     @model_validator(mode="after")
     def _normalize_telegram_parse_mode(self) -> Settings:
@@ -334,6 +441,83 @@ class Settings(BaseSettings):
             )
             raise ValueError(f"Unknown STRATEGY_NAME={self.strategy_name!r} (supported: {allowed})")
         return self
+
+    @field_validator("position_sizing")
+    @classmethod
+    def _validate_position_sizing(cls, v: str) -> str:
+        if v not in ("fixed", "equity_leverage", "available_margin_leverage"):
+            raise ValueError(
+                "POSITION_SIZING must be fixed|equity_leverage|available_margin_leverage"
+            )
+        return v
+
+    @field_validator("symbol_mode")
+    @classmethod
+    def _validate_symbol_mode(cls, v: str) -> str:
+        if v not in ("single", "signal_pick"):
+            raise ValueError("SYMBOL_MODE must be single|signal_pick")
+        return v
+
+    @field_validator("symbol_candidates_rank_by")
+    @classmethod
+    def _validate_symbol_candidates_rank_by(cls, v: str) -> str:
+        from futures_llm_bot.symbol_universe import parse_rank_metrics
+
+        metrics = parse_rank_metrics(str(v))
+        if not metrics:
+            raise ValueError(
+                "SYMBOL_CANDIDATES_RANK_BY needs at least one of: "
+                "abs_change, change, open_interest, liquidity, quote_volume, random"
+            )
+        return ",".join(metrics)
+
+    @field_validator("symbol_candidates_rank_weights", mode="before")
+    @classmethod
+    def _strip_rank_weights(cls, v: object) -> str:
+        if v is None:
+            return ""
+        return str(v).strip()
+
+    @field_validator("symbol_candidates", mode="before")
+    @classmethod
+    def _strip_symbol_candidates(cls, v: object) -> str:
+        if v is None:
+            return ""
+        return str(v).strip()
+
+    def symbol_candidates_is_auto(self) -> bool:
+        from futures_llm_bot.symbol_universe import is_auto_symbol_candidates
+
+        return self.symbol_mode == "signal_pick" and is_auto_symbol_candidates(self.symbol_candidates)
+
+    def manual_candidate_symbols(self) -> list[str]:
+        from futures_llm_bot.symbol_picker import parse_symbol_candidates
+        from futures_llm_bot.symbol_universe import is_auto_symbol_candidates
+
+        if self.symbol_mode == "single":
+            return [self.symbol]
+        raw = [
+            p
+            for p in parse_symbol_candidates(self.symbol_candidates)
+            if p and not is_auto_symbol_candidates(p)
+        ]
+        if not raw:
+            return [self.symbol]
+        return raw
+
+    def candidate_symbols(self) -> list[str]:
+        """Manual list only; auto pool is resolved at runtime via ``CandidatePool``."""
+        return self.manual_candidate_symbols()
+
+    def candidate_rank_metrics(self) -> list[str]:
+        from futures_llm_bot.symbol_universe import parse_rank_metrics
+
+        return parse_rank_metrics(self.symbol_candidates_rank_by)
+
+    def candidate_rank_weights(self) -> list[float]:
+        from futures_llm_bot.symbol_universe import parse_rank_weights
+
+        return parse_rank_weights(self.candidate_rank_metrics(), self.symbol_candidates_rank_weights)
 
     @field_validator("symbol", mode="before")
     @classmethod

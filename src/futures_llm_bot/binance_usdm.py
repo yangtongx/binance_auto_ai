@@ -6,6 +6,8 @@ from futures_llm_bot.execution import (
     resolve_account_hedged,
 )
 from futures_llm_bot.positions import (
+    fetch_futures_usdt_available_margin,
+    fetch_futures_usdt_balance,
     fetch_futures_usdt_equity,
     fetch_position_contracts,
     fetch_position_legs,
@@ -16,6 +18,8 @@ from futures_llm_bot.positions import (
 __all__ = [
     "build_exchange",
     "execute_signal",
+    "fetch_futures_usdt_available_margin",
+    "fetch_futures_usdt_balance",
     "fetch_futures_usdt_equity",
     "fetch_position_contracts",
     "fetch_position_legs",

@@ -123,25 +123,79 @@ def fetch_position_contracts(ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool
     return fetch_position_legs(ex, symbol, dry_run=dry_run).signed_net()
 
 
-def fetch_futures_usdt_equity(ex: ccxt.binanceusdm) -> float | None:
+def _float_balance_field(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _usdt_row_from_fetch_balance(bal: dict[str, Any]) -> dict[str, Any] | None:
+    usdt = bal.get("USDT")
+    if isinstance(usdt, dict):
+        return usdt
+    total = bal.get("total")
+    if isinstance(total, dict) and isinstance(total.get("USDT"), dict):
+        return total["USDT"]
+    return None
+
+
+def _usdt_asset_from_fapi_info(info: object) -> dict[str, Any] | None:
+    if not isinstance(info, dict):
+        return None
+    assets = info.get("assets")
+    if not isinstance(assets, list):
+        return None
+    for row in assets:
+        if isinstance(row, dict) and str(row.get("asset", "")).upper() == "USDT":
+            return row
+    return None
+
+
+def fetch_futures_usdt_balance(ex: ccxt.binanceusdm) -> tuple[float | None, float | None]:
+    """Return ``(wallet_total_usdt, available_margin_usdt)`` from one ``fetch_balance`` call."""
     try:
         bal = ex.fetch_balance()
     except ccxt.BaseError as e:
         logger.warning("fetch_balance failed (%s)", e)
-        return None
-    usdt = bal.get("USDT")
-    if isinstance(usdt, dict):
-        t = usdt.get("total")
-    else:
-        t = None
-    if t is None:
-        total = bal.get("total")
-        if isinstance(total, dict):
-            t = total.get("USDT")
-    try:
-        return float(t) if t is not None else None
-    except (TypeError, ValueError):
-        return None
+        return None, None
+
+    usdt = _usdt_row_from_fetch_balance(bal)
+    total = _float_balance_field(usdt.get("total") if usdt else None)
+    available = _float_balance_field(usdt.get("free") if usdt else None)
+    if available is None and usdt:
+        available = _float_balance_field(usdt.get("available") or usdt.get("availableBalance"))
+
+    fapi = _usdt_asset_from_fapi_info(bal.get("info"))
+    if fapi:
+        if total is None:
+            total = _float_balance_field(
+                fapi.get("walletBalance") or fapi.get("crossWalletBalance") or fapi.get("balance")
+            )
+        if available is None:
+            available = _float_balance_field(
+                fapi.get("availableBalance") or fapi.get("maxWithdrawAmount")
+            )
+
+    if available is None and total is not None and usdt:
+        used = _float_balance_field(usdt.get("used"))
+        if used is not None:
+            available = max(0.0, total - used)
+
+    return total, available
+
+
+def fetch_futures_usdt_equity(ex: ccxt.binanceusdm) -> float | None:
+    total, _available = fetch_futures_usdt_balance(ex)
+    return total
+
+
+def fetch_futures_usdt_available_margin(ex: ccxt.binanceusdm) -> float | None:
+    """USDT available for new positions (``free`` / ``availableBalance``), not wallet total."""
+    _total, available = fetch_futures_usdt_balance(ex)
+    return available
 
 
 def primary_exposure_notional_usdt(legs: PositionLegs, last: float) -> float:

@@ -30,6 +30,8 @@ def execute_oneway(
     session: SessionRisk | None,
     legs: PositionLegs,
     last: float,
+    equity_usdt: float | None = None,
+    available_margin_usdt: float | None = None,
     on_real_order: Callable[[], None] | None = None,
 ) -> None:
     symbol = settings.symbol
@@ -49,7 +51,12 @@ def execute_oneway(
         )
         return
 
-    requested = directional_notional_or_skip(settings, signal)
+    requested = directional_notional_or_skip(
+        settings,
+        signal,
+        equity_usdt=equity_usdt,
+        available_margin_usdt=available_margin_usdt,
+    )
     if requested is None:
         return
 

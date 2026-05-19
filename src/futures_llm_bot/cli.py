@@ -12,6 +12,7 @@ from futures_llm_bot.binance_kline_ws import BinanceUsdMKlineBuffer
 from futures_llm_bot.binance_usdm import (
     build_exchange,
     execute_signal,
+    fetch_futures_usdt_balance,
     fetch_futures_usdt_equity,
     format_account_context,
     resolve_account_hedged,
@@ -26,6 +27,14 @@ from futures_llm_bot.risk import assess_signal
 from futures_llm_bot.risk_metrics import aligned_log_return_correlation, var_tail_block_reason_from_ohlcv
 from futures_llm_bot.schemas import Action
 from futures_llm_bot.session_risk import SessionRisk
+from futures_llm_bot.symbol_picker import (
+    evaluate_candidate_signals,
+    log_candidate_signals,
+    pick_best_directional,
+    plan_signal_pick_trades,
+    resolve_held_symbol,
+)
+from futures_llm_bot.symbol_universe import CandidatePool
 from futures_llm_bot.telegram_notify import send_telegram_trade_signal
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -110,6 +119,89 @@ def _ohlcv_fetch_limit(settings: Settings) -> int:
     return settings.klines_limit
 
 
+def _run_trade_step(
+    ex,
+    settings: Settings,
+    signal,
+    *,
+    symbol: str,
+    account_hedged: bool,
+    equity: float | None,
+    available_margin: float | None,
+    session: SessionRisk,
+    src: str,
+) -> bool:
+    """Apply risk gates and maybe execute one symbol/signal. Returns False if blocked."""
+    send_telegram_trade_signal(settings.model_copy(update={"symbol": symbol}), signal, source=src, equity_usdt=equity)
+    decision = assess_signal(signal, settings.min_confidence)
+    if not decision.allowed:
+        logger.warning("risk blocked (%s): %s", symbol, decision.message)
+        metrics.record_tick_risk_blocked()
+        return False
+    gate = session.block_reason_for(signal.action, current_equity=equity)
+    if gate:
+        logger.warning("session risk blocked (%s): %s", symbol, gate)
+        metrics.record_tick_risk_blocked()
+        return False
+    execute_signal(
+        ex,
+        settings,
+        signal,
+        account_hedged=account_hedged,
+        symbol=symbol,
+        equity_usdt=equity,
+        available_margin_usdt=available_margin,
+        session=session,
+        on_real_order=metrics.record_real_order,
+    )
+    return True
+
+
+def _tick_signal_pick(
+    ex,
+    settings: Settings,
+    *,
+    account_hedged: bool,
+    session: SessionRisk,
+    rule_strategy: Strategy,
+    candidate_pool: CandidatePool,
+) -> None:
+    candidates = candidate_pool.symbols()
+    need = _ohlcv_fetch_limit(settings)
+    signals = evaluate_candidate_signals(ex, settings, rule_strategy, candidates, ohlcv_limit=need)
+    held, held_in_whitelist = resolve_held_symbol(ex, candidates, dry_run=settings.dry_run)
+    pick = pick_best_directional(
+        signals, candidates_order=candidates, min_confidence=settings.min_confidence
+    )
+    log_candidate_signals(candidates, signals, pick=pick)
+    steps = plan_signal_pick_trades(
+        signals,
+        candidates=candidates,
+        held_symbol=held,
+        held_outside_whitelist=held is not None and not held_in_whitelist,
+        min_confidence=settings.min_confidence,
+    )
+    if not steps:
+        logger.info("signal_pick: no trade steps this tick")
+        return
+    equity, available_margin = fetch_futures_usdt_balance(ex)
+    session.on_tick(current_usdt_equity=equity)
+    session.warn_if_drawdown_near_limit(current_equity=equity)
+    for step in steps:
+        logger.info("signal_pick execute: %s %s", step.symbol, step.signal.model_dump())
+        _run_trade_step(
+            ex,
+            settings,
+            step.signal,
+            symbol=step.symbol,
+            account_hedged=account_hedged,
+            equity=equity,
+            available_margin=available_margin,
+            session=session,
+            src="strategy",
+        )
+
+
 def _tick(
     ex,
     settings: Settings,
@@ -118,10 +210,26 @@ def _tick(
     session: SessionRisk,
     rule_strategy: Strategy | None,
     ws_buffer: BinanceUsdMKlineBuffer | None = None,
+    candidate_pool: CandidatePool | None = None,
 ) -> None:
     metrics.record_tick_attempt()
     try:
-        equity = fetch_futures_usdt_equity(ex)
+        if settings.symbol_mode == "signal_pick":
+            if rule_strategy is None:
+                raise RuntimeError("signal_pick requires SIGNAL_SOURCE=strategy")
+            if candidate_pool is None:
+                raise RuntimeError("signal_pick requires candidate_pool")
+            _tick_signal_pick(
+                ex,
+                settings,
+                account_hedged=account_hedged,
+                session=session,
+                rule_strategy=rule_strategy,
+                candidate_pool=candidate_pool,
+            )
+            return
+
+        equity, available_margin = fetch_futures_usdt_balance(ex)
         session.on_tick(current_usdt_equity=equity)
         session.warn_if_drawdown_near_limit(current_equity=equity)
         if rule_strategy is not None:
@@ -191,27 +299,16 @@ def _tick(
             logger.info("LLM signal: %s", signal.model_dump())
 
         src = "strategy" if rule_strategy is not None else "llm"
-        send_telegram_trade_signal(settings, signal, source=src, equity_usdt=equity)
-
-        decision = assess_signal(signal, settings.min_confidence)
-        if not decision.allowed:
-            logger.warning("risk blocked: %s", decision.message)
-            metrics.record_tick_risk_blocked()
-            return
-
-        gate = session.block_reason_for(signal.action, current_equity=equity)
-        if gate:
-            logger.warning("session risk blocked: %s", gate)
-            metrics.record_tick_risk_blocked()
-            return
-
-        execute_signal(
+        _run_trade_step(
             ex,
             settings,
             signal,
+            symbol=settings.symbol,
             account_hedged=account_hedged,
+            equity=equity,
+            available_margin=available_margin,
             session=session,
-            on_real_order=metrics.record_real_order,
+            src=src,
         )
     except Exception as e:
         metrics.record_tick_failed(repr(e))
@@ -223,10 +320,19 @@ def _tick(
 def run_loop(settings: Settings, *, once: bool = False) -> None:
     if settings.observability_port > 0:
         start_observability_background(settings.observability_host, settings.observability_port)
-    from futures_llm_bot.exchange_env import load_binance_usdm_markets
+    from futures_llm_bot.exchange_env import apply_symbol_leverage, load_binance_usdm_markets
+    from futures_llm_bot.order_utils import warn_if_max_notional_below_minimum
 
     ex = build_exchange(settings)
     load_binance_usdm_markets(ex)
+    candidate_pool: CandidatePool | None = None
+    if settings.symbol_mode == "signal_pick":
+        candidate_pool = CandidatePool(settings)
+        candidate_pool.refresh(ex)
+        for sym in candidate_pool.symbols():
+            apply_symbol_leverage(ex, settings, symbol=sym)
+    else:
+        apply_symbol_leverage(ex, settings)
     try:
         account_hedged = resolve_account_hedged(ex, settings)
     except ValueError as e:
@@ -257,15 +363,36 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
             "BINANCE_API_KEY/SECRET missing — public market data works; balance/positions/orders need keys "
             "(Docker: ./secrets/binance_api_key + compose secrets, or set env vars; empty .env values block *_FILE)"
         )
+    else:
+        try:
+            eq, margin = fetch_futures_usdt_balance(ex)
+            pool_syms = candidate_pool.symbols() if candidate_pool is not None else [settings.symbol]
+            for sym in pool_syms:
+                last_px = ex.fetch_ticker(sym).get("last") or ex.fetch_ticker(sym).get("close")
+                sym_settings = settings.model_copy(update={"symbol": sym})
+                warn_if_max_notional_below_minimum(
+                    ex,
+                    sym_settings,
+                    last=float(last_px) if last_px else None,
+                    equity_usdt=eq,
+                    available_margin_usdt=margin,
+                )
+        except Exception as e:
+            logger.debug("startup sizing check skipped: %s", e)
 
     logger.info(
-        "markets loaded; signal_source=%s symbol=%s testnet=%s dry_run=%s min_confidence=%s once=%s hedged=%s "
+        "markets loaded; signal_source=%s symbol_mode=%s symbols=%s testnet=%s dry_run=%s "
+        "position_sizing=%s leverage=%s max_notional=%s min_confidence=%s once=%s hedged=%s "
         "openai_timeout=%ss exchange_timeout=%sms max_trades/day=%s max_daily_loss=%s warn_ratio=%s "
         "observability=%s:%s strategy=%s",
         settings.signal_source,
-        settings.symbol,
+        settings.symbol_mode,
+        ",".join(candidate_pool.symbols()) if candidate_pool is not None else settings.symbol,
         settings.binance_testnet,
         settings.dry_run,
+        settings.position_sizing,
+        settings.leverage,
+        settings.max_notional_usdt,
         settings.min_confidence,
         once,
         account_hedged,
@@ -284,6 +411,13 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
             if _stop_requested:
                 logger.info("stop requested; exiting before next tick")
                 break
+            if candidate_pool is not None and candidate_pool.should_refresh():
+                try:
+                    candidate_pool.refresh(ex)
+                    for sym in candidate_pool.symbols():
+                        apply_symbol_leverage(ex, settings, symbol=sym)
+                except Exception:
+                    logger.exception("candidate pool refresh failed")
             if not once:
                 _sleep_until_next_minute_close()
                 if _stop_requested:
@@ -297,6 +431,7 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
                     session=session,
                     rule_strategy=rule_strategy,
                     ws_buffer=ws_buffer,
+                    candidate_pool=candidate_pool,
                 )
             except Exception:
                 logger.exception("tick failed")
