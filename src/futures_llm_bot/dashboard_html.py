@@ -67,6 +67,17 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     width: 100%; height: 200px; display: block; background: var(--surface2);
     border-radius: 8px; border: 1px solid var(--border);
   }
+  .range-bar {
+    display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.6rem;
+  }
+  .range-btn {
+    background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 999px; padding: 0.2rem 0.7rem; font-size: 0.78rem;
+    font-family: inherit; cursor: pointer; transition: background 0.15s, border-color 0.15s;
+  }
+  .range-btn:hover { border-color: var(--accent); }
+  .range-btn.active { background: rgba(91,141,239,.18); color: var(--accent); border-color: var(--accent); }
+  .range-meta { color: var(--muted); font-size: 0.72rem; margin-top: 0.4rem; }
   table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   th, td { padding: 0.45rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
@@ -118,7 +129,18 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     </section>
     <section class="card">
       <div class="section-title">资产曲线（UTC）</div>
+      <div class="range-bar" id="range-bar">
+        <button class="range-btn" data-range="5m">5 分</button>
+        <button class="range-btn" data-range="15m">15 分</button>
+        <button class="range-btn active" data-range="1h">1 时</button>
+        <button class="range-btn" data-range="6h">6 时</button>
+        <button class="range-btn" data-range="1d">1 天</button>
+        <button class="range-btn" data-range="1w">1 周</button>
+        <button class="range-btn" data-range="1m">1 月</button>
+        <button class="range-btn" data-range="all">全部</button>
+      </div>
       <canvas id="equity-chart" width="640" height="200"></canvas>
+      <div class="range-meta" id="range-meta">—</div>
     </section>
   </div>
 
@@ -176,11 +198,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   </section>
 
   <div id="err" class="error"></div>
-  <p class="links">接口: <a href="/health">/health</a> · <a href="/api/status">/api/status</a> · <a href="/metrics">/metrics</a></p>
+  <p class="links">接口: <a href="/health">/health</a> · <a href="/api/status">/api/status</a> · <a href="/api/equity?range=1d">/api/equity</a> · <a href="/metrics">/metrics</a></p>
 </main>
 <script>
 (function () {
   const el = (id) => document.getElementById(id);
+  let currentRange = "1h";
+  let lastRangeFetchAt = 0;
   function fmt(n, d) {
     if (typeof n !== "number" || !isFinite(n)) return "—";
     return n.toFixed(d == null ? 2 : d);
@@ -275,7 +299,13 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       const sess = d.session || {};
       el("trades-today").textContent = (sess.trade_count ?? "—") + (sess.max_trades_per_day > 0 ? " / " + sess.max_trades_per_day : "");
       el("day-dd").textContent = fmt(sess.day_drawdown_usdt, 2);
-      drawEquity(d.equity_history || []);
+      // Only redraw equity from /health when on the default (1h) range; longer
+      // ranges are served by /api/equity and re-fetched on selection / timer.
+      if (currentRange === "1h") {
+        drawEquity(d.equity_history || []);
+        el("range-meta").textContent = "样本 " + (d.equity_history || []).length +
+          " / 总记录 " + (d.equity_history_total ?? "—");
+      }
       const pos = d.positions || [];
       const pb = el("positions-body");
       if (!pos.length) {
@@ -348,8 +378,43 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       er.classList.add("visible");
     }
   }
+  async function fetchRange(r) {
+    try {
+      const resp = await fetch("/api/equity?range=" + encodeURIComponent(r), { cache: "no-store" });
+      if (!resp.ok) throw new Error("HTTP " + resp.status);
+      const j = await resp.json();
+      drawEquity(j.points || []);
+      el("range-meta").textContent = "范围 " + (j.range || r) +
+        " · 样本 " + (j.points || []).length +
+        " · 原始 " + (j.raw_count ?? "—") + " 个点";
+      lastRangeFetchAt = Date.now();
+    } catch (e) {
+      el("range-meta").textContent = "加载失败: " + e;
+    }
+  }
+  function setRange(r) {
+    currentRange = r;
+    document.querySelectorAll(".range-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.range === r);
+    });
+    if (r === "1h") {
+      // 1h uses the embedded /health payload; let next poll() draw it.
+      el("range-meta").textContent = "范围 1h · 等待刷新…";
+    } else {
+      fetchRange(r);
+    }
+  }
+  document.querySelectorAll(".range-btn").forEach((b) => {
+    b.addEventListener("click", () => setRange(b.dataset.range));
+  });
   poll();
   setInterval(poll, 3000);
+  // Re-fetch longer ranges every 30 s so the chart stays current.
+  setInterval(() => {
+    if (currentRange !== "1h" && Date.now() - lastRangeFetchAt > 25000) {
+      fetchRange(currentRange);
+    }
+  }, 5000);
 })();
 </script>
 </body>

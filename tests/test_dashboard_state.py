@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
 from futures_llm_bot.dashboard_state import DashboardState
 from futures_llm_bot.schemas import Action, LLMSignal
 
@@ -30,3 +33,43 @@ def test_dashboard_snapshot_roundtrip() -> None:
     assert snap["config"]["symbol_mode"] == "single"
     assert "DOGE/USDT:USDT" in snap["signals"]
     assert snap["decisions"][0]["outcome"] == "dry_run"
+
+
+def _seed_equity(st: DashboardState, points: list[tuple[datetime, float]]) -> None:
+    for ts, v in points:
+        st._equity_history.append({"t": ts.isoformat(), "v": v})
+
+
+def test_equity_range_filters_and_downsamples() -> None:
+    st = DashboardState()
+    now = datetime.now(timezone.utc)
+    pts = [(now - timedelta(minutes=i), 100.0 + i) for i in range(120, 0, -1)]
+    _seed_equity(st, pts)
+
+    last_hour = st.equity_range("1h", max_points=200)
+    assert last_hour["range"] == "1h"
+    # 1h window should contain ~60 of the 120 points
+    assert 55 <= last_hour["raw_count"] <= 61
+    assert len(last_hour["points"]) <= 200
+
+    all_range = st.equity_range("all", max_points=50)
+    assert all_range["raw_count"] == 120
+    assert len(all_range["points"]) <= 50
+    # Last point preserved after downsampling
+    assert all_range["points"][-1]["v"] == pts[-1][1]
+
+
+def test_equity_persist_and_load(tmp_path: Path) -> None:
+    path = tmp_path / "equity_history.json"
+    st = DashboardState(persist_path=path)
+    now = datetime.now(timezone.utc)
+    st._equity_history.append({"t": now.isoformat(), "v": 42.5})
+    # Force persist by bypassing throttle
+    st._last_persist_monotonic = 0.0
+    st._persist_throttled()
+    assert path.is_file()
+
+    st2 = DashboardState(persist_path=path)
+    history = list(st2._equity_history)
+    assert len(history) == 1
+    assert history[0]["v"] == 42.5

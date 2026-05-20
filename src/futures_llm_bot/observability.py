@@ -6,9 +6,9 @@ import json
 import logging
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-from futures_llm_bot import metrics
+from futures_llm_bot import dashboard_state, metrics
 from futures_llm_bot.dashboard_html import DASHBOARD_HTML
 
 logger = logging.getLogger(__name__)
@@ -36,11 +36,18 @@ def start_observability_background(host: str, port: int) -> threading.Thread:
                 pass
 
         def do_GET(self) -> None:  # noqa: N802
-            path = urlparse(self.path).path or "/"
+            parsed = urlparse(self.path)
+            path = parsed.path or "/"
             if path in ("/", "/dashboard"):
                 self._send_body(200, _DASHBOARD_HTML.encode("utf-8"), "text/html; charset=utf-8")
             elif path in ("/health", "/api/status"):
                 body = json.dumps(metrics.snapshot(), indent=2).encode("utf-8")
+                self._send_body(200, body, "application/json; charset=utf-8")
+            elif path == "/api/equity":
+                qs = parse_qs(parsed.query)
+                range_key = (qs.get("range") or ["1h"])[0]
+                payload = dashboard_state.equity_range(range_key)
+                body = json.dumps(payload).encode("utf-8")
                 self._send_body(200, body, "application/json; charset=utf-8")
             elif path == "/metrics":
                 body = metrics.prometheus_text().encode("utf-8")
@@ -51,7 +58,7 @@ def start_observability_background(host: str, port: int) -> threading.Thread:
     def _run() -> None:
         server = HTTPServer((host, port), _Handler)
         logger.info(
-            "observability listening on http://%s:%s (/, /dashboard, /health, /api/status, /metrics)",
+            "observability listening on http://%s:%s (/, /dashboard, /health, /api/status, /api/equity, /metrics)",
             host,
             port,
         )
