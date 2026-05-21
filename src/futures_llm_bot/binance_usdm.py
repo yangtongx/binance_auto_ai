@@ -4,6 +4,7 @@ from futures_llm_bot.execution import (
     build_exchange,
     execute_signal,
     resolve_account_hedged,
+    verify_position_mode_alignment,
 )
 from futures_llm_bot.positions import (
     fetch_futures_usdt_available_margin,
@@ -26,4 +27,5 @@ __all__ = [
     "fetch_position_meta",
     "format_account_context",
     "resolve_account_hedged",
+    "verify_position_mode_alignment",
 ]
