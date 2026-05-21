@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from futures_llm_bot.config import Settings
+from futures_llm_bot.time_display import utc_now_iso
 from futures_llm_bot.schemas import LLMSignal
 from futures_llm_bot.session_risk import SessionRisk
 
@@ -35,10 +36,6 @@ RANGE_SECONDS: dict[str, float | None] = {
     "1m": 2592000.0,
     "all": None,
 }
-
-
-def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _parse_point_ts(t: str) -> float:
@@ -176,7 +173,7 @@ class DashboardState:
         with self._lock:
             self._decisions.appendleft(
                 {
-                    "at": _utc_now(),
+                    "at": utc_now_iso(),
                     "symbol": symbol,
                     "source": source,
                     "outcome": outcome,
@@ -187,7 +184,7 @@ class DashboardState:
 
     def append_event(self, message: str) -> None:
         with self._lock:
-            self._events.appendleft({"at": _utc_now(), "message": message[:500]})
+            self._events.appendleft({"at": utc_now_iso(), "message": message[:500]})
 
     def refresh_exchange(
         self,
@@ -203,7 +200,7 @@ class DashboardState:
         session_stats = session.snapshot_stats(current_equity=equity)
 
         with self._lock:
-            self._last_tick_at = _utc_now()
+            self._last_tick_at = utc_now_iso()
             self._account = {
                 "equity_usdt": equity,
                 "available_margin_usdt": available,

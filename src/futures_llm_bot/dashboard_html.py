@@ -128,7 +128,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       </div>
     </section>
     <section class="card">
-      <div class="section-title">资产曲线（UTC）</div>
+      <div class="section-title">资产曲线（北京时间）</div>
       <div class="range-bar" id="range-bar">
         <button class="range-btn" data-range="5m">5 分</button>
         <button class="range-btn" data-range="15m">15 分</button>
@@ -205,9 +205,34 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   const el = (id) => document.getElementById(id);
   let currentRange = "1h";
   let lastRangeFetchAt = 0;
+  const TZ = "Asia/Shanghai";
   function fmt(n, d) {
     if (typeof n !== "number" || !isFinite(n)) return "—";
     return n.toFixed(d == null ? 2 : d);
+  }
+  function fmtTime(iso, compact) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return String(iso).slice(0, 19);
+      const opts = {
+        timeZone: TZ,
+        year: compact ? undefined : "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false
+      };
+      if (compact) delete opts.year;
+      return d.toLocaleString("zh-CN", opts).replace(/\//g, "-");
+    } catch (e) {
+      return String(iso).slice(0, 19);
+    }
+  }
+  function nowDisplay() {
+    return fmtTime(new Date().toISOString(), true);
   }
   function actionClass(a) {
     a = (a || "").toLowerCase();
@@ -275,7 +300,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       hb.className = "badge " + (st === "healthy" ? "ok" : "warn");
       el("ver").textContent = j.version || "—";
       el("up").textContent = typeof j.uptime_s === "number" ? j.uptime_s.toFixed(0) : "—";
-      el("ts").textContent = new Date().toISOString().slice(11, 19) + "Z";
+      el("ts").textContent = nowDisplay();
       const d = j.dashboard || {};
       const cfg = d.config || {};
       const dry = !!cfg.dry_run;
@@ -346,14 +371,14 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       } else {
         dl.innerHTML = dec.slice(0, 20).map((x) => {
           const s = x.signal || {};
-          return '<li><span class="time">' + (x.at || "") + '</span> · ' + (x.symbol || "") +
+          return '<li><span class="time">' + fmtTime(x.at, true) + '</span> · ' + (x.symbol || "") +
             ' · <span class="' + actionClass(s.action) + '">' + (s.action || "") + '</span> · ' +
             (x.outcome || "") + (x.detail ? " · " + x.detail : "") + '</li>';
         }).join("");
       }
       const ev = d.events || [];
       el("events").innerHTML = ev.length ? ev.slice(0, 30).map((e) =>
-        '<li><span class="time">' + (e.at || "") + '</span> ' + (e.message || "") + '</li>'
+        '<li><span class="time">' + fmtTime(e.at, true) + '</span> ' + (e.message || "") + '</li>'
       ).join("") : '<li class="empty">暂无事件</li>';
       const t = j.ticks || {};
       el("ticks-att").textContent = t.attempted ?? 0;
