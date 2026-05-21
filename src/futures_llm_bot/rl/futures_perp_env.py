@@ -1,4 +1,4 @@
-"""Single-asset bar environment: clipped log-return window → discrete position {flat, long, short}."""
+"""RL 训练环境（Gymnasium）：单资产 K 线 → 离散仓位 {空、平、多}。"""
 
 from __future__ import annotations
 
@@ -9,15 +9,10 @@ from gymnasium import spaces
 
 class FuturesPerpBarEnv(gym.Env):
     """
-    One step = one bar. Observation matches live ``build_observation_vector`` (``window-1`` clipped log-returns).
+    每步一根 K 线；观测与实盘 RL 策略一致（window-1 个裁剪对数收益）。
 
-    Actions map to **target net position** in ``{-1, 0, +1}`` (short / flat / long).
-
-    **Reward modes** (``reward`` constructor arg):
-
-    - ``pnl``: ``position * r_{t+1}`` where ``r`` is one-bar log return (PnL proxy before fees).
-    - ``pnl_cost``: same minus ``trans_cost * |Δposition|`` (turnover penalty).
-    - ``risk_adjusted``: ``pnl`` minus ``drawdown_penalty * max(0, -equity_change)`` on a simple log-equity trace.
+    动作：目标净仓位 {-1, 0, +1}（空/平/多）。
+    奖励：pnl | pnl_cost（换手惩罚）| risk_adjusted（回撤惩罚）。
     """
 
     metadata = {"render_modes": []}

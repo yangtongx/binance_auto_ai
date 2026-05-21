@@ -72,12 +72,14 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
+    # --- 币安 API ---
     binance_api_key: str = Field(default="", validation_alias="BINANCE_API_KEY")
     binance_api_secret: str = Field(default="", validation_alias="BINANCE_API_SECRET")
     binance_testnet: bool = Field(default=False, validation_alias="BINANCE_TESTNET")
     # Local Clash/SSR: http://127.0.0.1:7890 or socks5://127.0.0.1:1080 (socks needs PySocks)
     binance_https_proxy: str = Field(default="", validation_alias="BINANCE_HTTPS_PROXY")
 
+    # --- LLM（SIGNAL_SOURCE=llm 时必填）---
     openai_api_key: str = Field(default="", validation_alias="OPENAI_API_KEY")
     openai_base_url: str | None = Field(default=None, validation_alias="OPENAI_BASE_URL")
     openai_model: str = Field(default="gpt-4.1-mini", validation_alias="OPENAI_MODEL")
@@ -85,7 +87,7 @@ class Settings(BaseSettings):
     openai_max_retries: int = Field(default=4, ge=1, le=12, validation_alias="OPENAI_MAX_RETRIES")
     openai_retry_base_sec: float = Field(default=1.0, gt=0, le=120, validation_alias="OPENAI_RETRY_BASE_SEC")
 
-    # llm: OpenAI-compatible chat API. strategy: rule engine (same as futures-llm-backtest sma_cross).
+    # --- 信号源：llm=大模型；strategy=规则引擎（与回测策略一致）---
     signal_source: str = Field(default="strategy", validation_alias="SIGNAL_SOURCE")
     strategy_name: str = Field(default="sma_cross", validation_alias="STRATEGY_NAME")
     strategy_fast: int = Field(default=10, ge=2, le=500, validation_alias="STRATEGY_FAST")

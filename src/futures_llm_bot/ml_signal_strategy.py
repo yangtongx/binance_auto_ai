@@ -1,4 +1,4 @@
-"""Optional ML backends (install ``.ml-torch`` or ``.ml-tf`` extras). Maps logits → ``LLMSignal``."""
+"""机器学习策略（可选装 ml-torch/ml-tf）：logits 三分类 → long/short/hold。"""
 
 from __future__ import annotations
 

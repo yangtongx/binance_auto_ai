@@ -1,4 +1,4 @@
-"""RL training subpackage (optional ``.[rl]`` dependencies)."""
+"""强化学习子包（可选依赖 gymnasium/SB3），懒加载 FuturesPerpBarEnv。"""
 
 from __future__ import annotations
 

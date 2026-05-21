@@ -1,4 +1,4 @@
-"""Binance USDT-M **closed** kline WebSocket buffer (REST seed + ``@kline_<tf>`` updates)."""
+"""币安 USDT-M K 线 WebSocket 缓冲：REST 预热 + 收盘推送，供 USE_WEBSOCKET=true 时策略用。"""
 
 from __future__ import annotations
 

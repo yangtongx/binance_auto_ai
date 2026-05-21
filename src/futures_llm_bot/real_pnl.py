@@ -1,4 +1,4 @@
-"""Exchange-reported USDT-M PnL via Binance ``/fapi/v1/income`` (not a synthetic backtest)."""
+"""交易所真实盈亏：调用币安 /fapi/v1/income 汇总（非回测模拟）。"""
 
 from __future__ import annotations
 

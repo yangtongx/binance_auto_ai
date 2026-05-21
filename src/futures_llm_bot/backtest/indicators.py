@@ -1,4 +1,4 @@
-"""NumPy-vectorized indicators + O(1) incremental streams when the close series grows by one bar."""
+"""技术指标：NumPy 批量计算 + 逐根 K 线 O(1) 增量流（实盘 on_bar 用 Stream 类）。"""
 
 from __future__ import annotations
 
@@ -122,6 +122,8 @@ class _RollingSMA:
 
 
 class SMACrossStream:
+    """快慢 SMA 增量流；``cross()`` 返回上一根/当前快慢线值，用于判断金叉死叉。"""
+
     __slots__ = ("_fast", "_slow", "_rf", "_rs", "_fp", "_sp", "_fn", "_sn", "_n", "_key")
 
     def __init__(self, fast: int, slow: int) -> None:
@@ -186,6 +188,8 @@ class SMACrossStream:
 
 
 class RSIWilderStream:
+    """Wilder RSI 增量流，避免每根 K 线全量重算。"""
+
     __slots__ = ("_p", "_avg_g", "_avg_l", "_prev_c", "_rsi", "_n", "_key")
 
     def __init__(self, period: int) -> None:
@@ -262,6 +266,7 @@ class RSIWilderStream:
 
 
 class MACDStream:
+    """MACD 线与信号线增量流。"""
     __slots__ = (
         "_fast",
         "_slow",
@@ -344,6 +349,7 @@ class MACDStream:
 
 
 class BollingerStream:
+    """布林带上下轨增量流。"""
     __slots__ = ("_period", "_std", "_tail_closes", "_n", "_key")
 
     def __init__(self, period: int, num_std: float) -> None:

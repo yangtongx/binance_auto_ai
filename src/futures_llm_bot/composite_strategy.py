@@ -1,4 +1,4 @@
-"""Combine multiple rule strategies into one signal (ensemble / voting)."""
+"""组合策略：多子策略投票/加权（STRATEGY_NAME=composite）。"""
 
 from __future__ import annotations
 
@@ -17,10 +17,7 @@ def _vote_numeric(s: LLMSignal) -> float:
 
 
 class CompositeStrategy:
-    """Run N child strategies each bar and merge via ``mode``.
-
-    Children are invoked in order; all share the same ``ohlcv`` slice.
-    """
+    """每根 K 线运行 N 个子策略，按 majority/weighted/unanimous/first 合并信号。"""
 
     def __init__(
         self,

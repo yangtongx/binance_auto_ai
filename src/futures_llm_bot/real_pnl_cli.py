@@ -1,4 +1,4 @@
-"""CLI: summarize Binance USDT-M income history (real exchange PnL, not backtest)."""
+"""命令行：futures-llm-real-pnl，汇总币安合约账户流水盈亏。"""
 
 from __future__ import annotations
 

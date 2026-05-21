@@ -1,36 +1,63 @@
 # 代码导读（中文）
 
-## 主流程
+## 主流程（必读）
 
-1. **`cli.py`**：`run_loop` 每分钟 `_tick` → 规则/LLM 出信号 → 风控 → `execute_signal` 下单。
-2. **`symbol_universe.py`**：`CandidatePool` 维护 `signal_pick` 自动/手动候选池。
-3. **`symbol_picker.py`**：扫描各币信号、`plan_signal_pick_trades` 规划平仓/换币/开仓。
-4. **`execution*.py`**：按单向/双向持仓模式执行 flat/long/short。
-5. **`execution_helpers.py`**：`directional_notional_or_skip` 计算名义金额，`open_market_within_notional_cap` 受 `MAX_NOTIONAL_USDT` 限制。
+| 顺序 | 模块 | 说明 |
+|------|------|------|
+| 1 | `cli.py` | 主循环 `run_loop` → 每分钟 `_tick` |
+| 2 | `symbol_universe.py` | `CandidatePool` 自动/手动候选池 |
+| 3 | `symbol_picker.py` | 扫信号、选最强、`plan_signal_pick_trades` 平仓/换币 |
+| 4 | `strategy_factory.py` + `backtest/strategies.py` | 规则策略 `on_bar` |
+| 5 | `risk.py` + `session_risk.py` | 置信度 + 日笔数/日亏损 |
+| 6 | `execution*.py` | 单向/双向下单、名义金额 |
+| 7 | `order_utils.py` | `place_order`、`DRY_RUN` |
 
-## 信号与风控
+## 信号与数据结构
 
-| 模块 | 作用 |
-|------|------|
-| `schemas.py` | `Action`、`LLMSignal` |
-| `strategy_factory.py` | 规则策略实例（如 `sma_cross`） |
-| `llm_strategy.py` | `SIGNAL_SOURCE=llm` 时调用大模型 |
-| `risk.py` | `MIN_CONFIDENCE` 门槛 |
-| `session_risk.py` | 日笔数、日最大亏损 |
+- `schemas.py`：`Action`（long/short/flat/hold）、`LLMSignal`
+- `llm_strategy.py`：`SIGNAL_SOURCE=llm`
+- `composite_strategy.py` / `ml_signal_strategy.py` / `rl_signal_strategy.py`：扩展策略
+
+## 技术指标
+
+- `backtest/indicators.py`：SMA/RSI/MACD/布林等；`SMACrossStream` 等增量类供实盘用
+- `risk_metrics.py`：VaR 尾部门控 `var_tail_block_reason_from_ohlcv`
 
 ## 诊币（不下单）
 
-| 模块 | 作用 |
+- `signal_probe.py` → `/api/signal`
+- `signal_timing_hints.py`：观望时的具体价位
+- `symbol_input.py`：用户输入解析
+
+## 监控与通知
+
+- `observability.py`、`dashboard_html.py`、`dashboard_state.py`
+- `telegram_notify.py`、`telegram_format.py`
+- `metrics.py`：`/health`、`/metrics`
+
+## 命令行工具
+
+| 命令 | 模块 |
 |------|------|
-| `signal_probe.py` | `/api/signal`、手动分析 |
-| `signal_timing_hints.py` | 观望时做多/做空价位参考 |
-| `symbol_input.py` | 用户输入币种解析 |
+| `futures-llm-bot` | `cli.py` / `__main__.py` |
+| `futures-llm-signal` | `signal_cli.py` |
+| `futures-llm-backtest` | `backtest_cli.py` |
+| `futures-llm-real-pnl` | `real_pnl_cli.py` |
+| `futures-llm-var-validate` | `var_validation_cli.py` |
+| 验密钥 | `verify_binance_cli.py` |
+
+## 回测与 RL
+
+- `backtest/engine.py`、`backtest/data.py`
+- `rl/futures_perp_env.py`：训练环境（可选依赖）
 
 ## 配置
 
-- 生产模板：`deploy/server.env`
-- 加载逻辑：`config.py` → `Settings`
+- 模板：`deploy/server.env`
+- 加载：`config.py` → `Settings`
 
-## 监控
+## 实盘参数速查
 
-- `observability.py` + `dashboard_html.py` + `dashboard_state.py`
+- 名义金额：`execution_helpers.directional_notional_or_skip`（`POSITION_SIZING` × `LEVERAGE` × `STRATEGY_SIZE_PCT`）
+- 硬顶：`MAX_NOTIONAL_USDT`
+- 持仓模式：`POSITION_MODE=auto`（避免 -4061）

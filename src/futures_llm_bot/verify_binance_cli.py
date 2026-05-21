@@ -1,4 +1,4 @@
-"""CLI: verify Binance USDM API keys (mainnet vs demo)."""
+"""命令行：验证币安 USDT-M API 密钥与连通性（主网/演示盘）。"""
 
 from __future__ import annotations
 

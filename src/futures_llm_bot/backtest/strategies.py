@@ -35,7 +35,7 @@ def _rsi_series_compat(closes: list[float], period: int) -> list[float | None]:
 
 
 class SMACrossStrategy:
-    """Fast SMA crosses above slow → long; cross below → short; else hold."""
+    """快慢均线金叉做多、死叉做空，否则观望（实盘默认策略）。"""
 
     def __init__(self, fast: int = 10, slow: int = 30, *, size_pct: float = 100.0, confidence: float = 0.8) -> None:
         if fast >= slow:

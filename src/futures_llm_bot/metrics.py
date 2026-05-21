@@ -1,4 +1,4 @@
-"""In-process metrics for health checks and Prometheus text exposition."""
+"""进程内指标：tick 计数、LLM 调用、/health 与 Prometheus /metrics 文本。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Load OHLCV for backtests (CCXT or CSV)."""
+"""回测数据：从币安 CCXT 拉取或读取 CSV OHLCV。"""
 
 from __future__ import annotations
 

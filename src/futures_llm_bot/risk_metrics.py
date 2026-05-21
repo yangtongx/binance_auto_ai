@@ -1,4 +1,4 @@
-"""VaR-style tail metrics and return correlations (NumPy only)."""
+"""风险指标：历史 VaR 尾部、收益相关性、波动率；供 RISK_VAR_BLOCK 与 rsi_adaptive 使用。"""
 
 from __future__ import annotations
 
@@ -84,10 +84,9 @@ def var_tail_block_reason_from_ohlcv(
     tail_limit: float,
 ) -> str | None:
     """
-    Empirical return VaR gate.
+    经验 VaR 门控：近期对数收益分位数若差于 tail_limit（如 -0.02），则禁止开新仓。
 
-    ``tail_limit`` is the minimum acceptable alpha-quantile log-return (e.g. ``-0.02``).
-    If the sample quantile is **more negative** than ``tail_limit``, returns a short reason string.
+    返回简短中文原因字符串，否则 None。
     """
     if window <= 0:
         return None

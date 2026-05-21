@@ -1,4 +1,4 @@
-"""Backtesting historical (empirical) VaR: violation rate + Kupiec unconditional coverage."""
+"""VaR 回测检验：滚动分位数违约率与 Kupiec 无条件覆盖检验。"""
 
 from __future__ import annotations
 

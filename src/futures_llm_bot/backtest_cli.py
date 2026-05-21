@@ -1,4 +1,4 @@
-"""CLI: run rule-based backtest on CCXT history or CSV."""
+"""命令行回测：futures-llm-backtest，用历史 K 线跑规则策略并输出收益统计。"""
 
 from __future__ import annotations
 

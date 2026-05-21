@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI: backtest empirical VaR hit rate + Kupiec test on historical log returns."""
+"""命令行：futures-llm-var-validate，历史收益 VaR 违约率与 Kupiec 检验。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Backtesting: historical OHLCV → deterministic strategy → simulated fills."""
+"""回测子包对外导出：run_backtest、BacktestResult、示例策略。"""
 
 from __future__ import annotations
 

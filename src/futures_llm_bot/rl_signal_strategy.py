@@ -1,4 +1,4 @@
-"""Optional Stable-Baselines3 inference (Discrete {hold, long, short} -> LLMSignal)."""
+"""强化学习策略（可选装 rl 依赖）：SB3 模型离散动作 0/1/2 → hold/long/short。"""
 
 from __future__ import annotations
 
