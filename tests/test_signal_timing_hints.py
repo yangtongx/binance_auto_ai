@@ -30,7 +30,11 @@ def test_sma_cross_hold_gives_long_and_short_hints() -> None:
     assert len(hints) == 2
     assert hints[0].side == "long"
     assert hints[1].side == "short"
-    assert "金叉" in hints[0].trigger or "上穿" in hints[0].trigger
+    assert hints[0].levels
+    assert any("高点" in lv.label for lv in hints[0].levels)
+    assert "触发价位" in hints[0].trigger
+    d = hints[0].to_dict()
+    assert d["levels"][0]["price_fmt"]
 
 
 def test_hold_only() -> None:

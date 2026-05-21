@@ -1,15 +1,34 @@
-"""When the probe says watch/hold, suggest what would trigger long or short."""
+"""When the probe says watch/hold, suggest what would trigger long or short with concrete prices."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
-from futures_llm_bot.backtest.indicators import closes_array, macd_signal_last, rsi_wilder_series, sma_series
+from futures_llm_bot.backtest.indicators import (
+    closes_array,
+    ema_series,
+    macd_signal_last,
+    rsi_wilder_series,
+    sma_series,
+)
 from futures_llm_bot.config import Settings
 from futures_llm_bot.schemas import Action, LLMSignal
+
+
+@dataclass(frozen=True)
+class PriceLevel:
+    """One actionable price level for the user."""
+
+    label: str
+    price: float
+    op: str = ">="  # >= long trigger, <= short trigger, ~ approximate
+
+    def line(self) -> str:
+        op_map = {">=": "≥", "<=": "≤", "~": "≈", ">": ">", "<": "<"}
+        sym = op_map.get(self.op, self.op)
+        return f"{self.label} {sym} {_fmt_price(self.price)}"
 
 
 @dataclass(frozen=True)
@@ -18,13 +37,27 @@ class TimingHint:
     title: str
     summary: str
     trigger: str
+    levels: tuple[PriceLevel, ...] = ()
+    current_price: float = 0.0
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, str | float | list[dict[str, str | float]]]:
         return {
             "side": self.side,
             "title": self.title,
             "summary": self.summary,
             "trigger": self.trigger,
+            "current_price": self.current_price,
+            "current_price_fmt": _fmt_price(self.current_price) if self.current_price > 0 else "",
+            "levels": [
+                {
+                    "label": lv.label,
+                    "op": lv.op,
+                    "price": lv.price,
+                    "price_fmt": _fmt_price(lv.price),
+                    "line": lv.line(),
+                }
+                for lv in self.levels
+            ],
         }
 
 
@@ -56,6 +89,39 @@ def _swing_levels(ohlcv: list[list[float]], lookback: int = 20) -> tuple[float, 
     return max(highs), min(lows)
 
 
+def _make_hint(
+    *,
+    side: str,
+    title: str,
+    levels: list[PriceLevel],
+    summary: str,
+    current_price: float,
+) -> TimingHint:
+    if levels:
+        trigger = "触发价位：" + " · ".join(lv.line() for lv in levels)
+    else:
+        trigger = summary
+    return TimingHint(
+        side=side,
+        title=title,
+        summary=summary,
+        trigger=trigger,
+        levels=tuple(levels),
+        current_price=current_price,
+    )
+
+
+def _crossover_watch_level(fast: float, slow: float, price: float, *, bullish: bool) -> PriceLevel:
+    """Approximate price needed on next close for fast/slow SMA to touch (heuristic)."""
+    mid = (fast + slow) / 2.0
+    if bullish:
+        # Fast below slow: need price lift toward the gap between price and slow line.
+        est = max(mid, slow, price * 1.002)
+        return PriceLevel(f"金叉参考价(≈快线上穿慢线)", est, "~")
+    est = min(mid, slow, price * 0.998)
+    return PriceLevel(f"死叉参考价(≈快线下穿慢线)", est, "~")
+
+
 def _hints_sma_cross(ohlcv: list[list[float]], settings: Settings) -> list[TimingHint]:
     closes = closes_array(ohlcv)
     fast_n = settings.strategy_fast
@@ -71,33 +137,36 @@ def _hints_sma_cross(ohlcv: list[list[float]], settings: Settings) -> list[Timin
     price = float(closes[-1])
     f_now, s_now = float(fast[-1]), float(slow[-1])
     gap = _pct(f_now, s_now)
-    tf = settings.timeframe
     swing_hi, swing_lo = _swing_levels(ohlcv)
 
     if f_now < s_now:
-        long_trigger = (
-            f"快均线({fast_n})上穿慢均线({slow_n})形成金叉（当前快线低于慢线约 {abs(gap):.2f}%）"
-        )
-        long_summary = (
-            f"价格需温和上行推动快线靠近慢线；可参考突破近期高点 {_fmt_price(swing_hi)} 或站稳慢线 {_fmt_price(s_now)}"
-        )
-        short_trigger = (
-            f"快线继续低于慢线且价格跌破近期低点 {_fmt_price(swing_lo)}，空头排列加深"
-        )
-        short_summary = f"或反弹至慢线 {_fmt_price(s_now)} 附近受阻后回落（{tf} 死叉确认更稳）"
+        long_levels = [
+            PriceLevel(f"突破近20根高点", swing_hi, ">="),
+            PriceLevel(f"站稳慢均线 SMA{slow_n}", s_now, ">="),
+            _crossover_watch_level(f_now, s_now, price, bullish=True),
+        ]
+        short_levels = [
+            PriceLevel(f"跌破近20根低点", swing_lo, "<="),
+            PriceLevel(f"跌破快线 SMA{fast_n}", f_now, "<="),
+        ]
+        long_summary = f"现价 {_fmt_price(price)}，快线低于慢线 {abs(gap):.2f}%"
+        short_summary = f"空头排列加深时关注跌破 {_fmt_price(swing_lo)}"
     else:
-        long_trigger = (
-            f"快线高于慢线时，回踩慢线 {_fmt_price(s_now)} 不破并再度走强，或突破高点 {_fmt_price(swing_hi)}"
-        )
-        long_summary = f"当前多头排列，快线高于慢线约 {gap:.2f}%"
-        short_trigger = (
-            f"快均线({fast_n})下穿慢均线({slow_n})形成死叉（当前快线高于慢线约 {gap:.2f}%）"
-        )
-        short_summary = f"价格走弱使快线回落跌破慢线；跌破低点 {_fmt_price(swing_lo)} 可视为辅助确认"
+        long_levels = [
+            PriceLevel(f"突破近20根高点", swing_hi, ">="),
+            PriceLevel(f"回踩不破慢均线 SMA{slow_n}", s_now, ">="),
+        ]
+        short_levels = [
+            PriceLevel(f"跌破近20根低点", swing_lo, "<="),
+            PriceLevel(f"跌破快线 SMA{fast_n}", f_now, "<="),
+            _crossover_watch_level(f_now, s_now, price, bullish=False),
+        ]
+        long_summary = f"现价 {_fmt_price(price)}，多头排列快线高于慢线 {gap:.2f}%"
+        short_summary = f"死叉确认优先看跌破快线 {_fmt_price(f_now)}"
 
     return [
-        TimingHint("long", "做多时机", long_summary, long_trigger),
-        TimingHint("short", "做空时机", short_summary, short_trigger),
+        _make_hint(side="long", title="做多时机", levels=long_levels, summary=long_summary, current_price=price),
+        _make_hint(side="short", title="做空时机", levels=short_levels, summary=short_summary, current_price=price),
     ]
 
 
@@ -108,22 +177,27 @@ def _hints_rsi(ohlcv: list[list[float]], settings: Settings) -> list[TimingHint]
         return []
     os_level = settings.strategy_rsi_oversold
     ob_level = settings.strategy_rsi_overbought
+    price = float(closes[-1])
     swing_hi, swing_lo = _swing_levels(ohlcv)
+    sma20 = sma_series(closes, 20)
+    s20 = float(sma20[-1]) if sma20.size and not np.isnan(sma20[-1]) else price
 
-    if rsi_val < (os_level + ob_level) / 2:
-        long_trigger = f"RSI 跌至超卖区 ≤ {os_level:.0f}（当前 {rsi_val:.1f}）"
-        long_summary = f"策略将倾向抄底做多；也可关注 RSI 从低位拐头向上同时价格守住 {_fmt_price(swing_lo)}"
-        short_trigger = f"RSI 升至超买区 ≥ {ob_level:.0f} 且价格接近阻力 {_fmt_price(swing_hi)}"
-        short_summary = "均值回归策略在超买区寻找做空机会"
-    else:
-        long_trigger = f"RSI 回落至超卖区 ≤ {os_level:.0f}（当前 {rsi_val:.1f}）"
-        long_summary = f"或价格回调至支撑 {_fmt_price(swing_lo)} 且 RSI 拐头向上"
-        short_trigger = f"RSI 进入超买 ≥ {ob_level:.0f}（当前 {rsi_val:.1f}）"
-        short_summary = f"策略将倾向高抛做空；跌破 {_fmt_price(swing_lo)} 则观望转弱"
+    long_levels = [
+        PriceLevel(f"策略超卖做多(RSI≤{os_level:.0f})", swing_lo, "~"),
+        PriceLevel("反弹突破近20根高点", swing_hi, ">="),
+        PriceLevel("站上 SMA20", s20, ">="),
+    ]
+    short_levels = [
+        PriceLevel(f"策略超买做空(RSI≥{ob_level:.0f})", swing_hi, "~"),
+        PriceLevel("跌破近20根低点", swing_lo, "<="),
+        PriceLevel("跌破 SMA20", s20, "<="),
+    ]
+    long_summary = f"现价 {_fmt_price(price)}，RSI {rsi_val:.1f}"
+    short_summary = f"阻力 {_fmt_price(swing_hi)}，支撑 {_fmt_price(swing_lo)}"
 
     return [
-        TimingHint("long", "做多时机", long_summary, long_trigger),
-        TimingHint("short", "做空时机", short_summary, short_trigger),
+        _make_hint(side="long", title="做多时机", levels=long_levels, summary=long_summary, current_price=price),
+        _make_hint(side="short", title="做空时机", levels=short_levels, summary=short_summary, current_price=price),
     ]
 
 
@@ -137,26 +211,39 @@ def _hints_macd(ohlcv: list[list[float]], settings: Settings) -> list[TimingHint
     )
     if x is None:
         return []
-    macd_prev, sig_prev, macd_now, sig_now = x
+    _, _, macd_now, sig_now = x
+    price = float(closes[-1])
     swing_hi, swing_lo = _swing_levels(ohlcv)
-    hist = macd_now - sig_now
+    ema_slow = ema_series(closes, settings.strategy_slow)
+    slow_val = float(ema_slow[-1]) if not np.isnan(ema_slow[-1]) else swing_lo
 
     if macd_now <= sig_now:
-        long_trigger = "MACD 柱体由负转正（DIF 上穿 DEA）"
-        long_summary = (
-            f"当前 DIF 低于信号线（柱体 {hist:.6f}）；放量突破 {_fmt_price(swing_hi)} 可加强做多确认"
-        )
-        short_trigger = f"DIF 远离 DEA 向下且价格跌破 {_fmt_price(swing_lo)}"
-        short_summary = "空头动能增强时策略倾向追空"
+        long_levels = [
+            PriceLevel("MACD 金叉确认(柱体转正)", swing_hi, ">="),
+            PriceLevel("突破近20根高点", swing_hi, ">="),
+            PriceLevel(f"站上慢线 EMA{settings.strategy_slow}", slow_val, ">="),
+        ]
+        short_levels = [
+            PriceLevel("跌破近20根低点", swing_lo, "<="),
+        ]
+        long_summary = f"现价 {_fmt_price(price)}，DIF 低于 DEA"
+        short_summary = f"空头加速看 {_fmt_price(swing_lo)}"
     else:
-        long_trigger = f"MACD 维持多头且价格站稳 {_fmt_price(swing_hi)} 上方"
-        long_summary = f"柱体 {hist:.6f}，回踩不破可继续持有思路"
-        short_trigger = "MACD 柱体由正转负（DIF 下穿 DEA）"
-        short_summary = f"或价格跌破慢线支撑 {_fmt_price(swing_lo)}"
+        long_levels = [
+            PriceLevel("突破近20根高点", swing_hi, ">="),
+            PriceLevel(f"回踩 EMA{settings.strategy_slow} 不破", slow_val, ">="),
+        ]
+        short_levels = [
+            PriceLevel("MACD 死叉确认(柱体转负)", swing_lo, "<="),
+            PriceLevel("跌破近20根低点", swing_lo, "<="),
+            PriceLevel(f"跌破 EMA{settings.strategy_slow}", slow_val, "<="),
+        ]
+        long_summary = f"现价 {_fmt_price(price)}，DIF 高于 DEA"
+        short_summary = f"转弱先看 {_fmt_price(swing_lo)}"
 
     return [
-        TimingHint("long", "做多时机", long_summary, long_trigger),
-        TimingHint("short", "做空时机", short_summary, short_trigger),
+        _make_hint(side="long", title="做多时机", levels=long_levels, summary=long_summary, current_price=price),
+        _make_hint(side="short", title="做空时机", levels=short_levels, summary=short_summary, current_price=price),
     ]
 
 
@@ -165,37 +252,31 @@ def _hints_generic(ohlcv: list[list[float]], settings: Settings) -> list[TimingH
     if closes.size < 30:
         return []
     price = float(closes[-1])
-    rsi_val = _last_rsi(closes, 14)
+    swing_hi, swing_lo = _swing_levels(ohlcv)
     sma20 = sma_series(closes, 20)
     sma50 = sma_series(closes, 50)
-    swing_hi, swing_lo = _swing_levels(ohlcv)
+    s20 = float(sma20[-1]) if not np.isnan(sma20[-1]) else price
+    s50 = float(sma50[-1]) if not np.isnan(sma50[-1]) else price
     tf = settings.timeframe
 
-    rsi_long = (
-        f"RSI 进入超卖区（<30，当前 {rsi_val:.1f}）并拐头向上"
-        if rsi_val is not None
-        else "RSI 超卖拐头"
-    )
-    rsi_short = (
-        f"RSI 进入超买区（>70，当前 {rsi_val:.1f}）并拐头向下"
-        if rsi_val is not None
-        else "RSI 超买拐头"
-    )
+    long_levels = [
+        PriceLevel(f"突破近{tf}高点", swing_hi, ">="),
+        PriceLevel("站上 SMA20", s20, ">="),
+    ]
+    short_levels = [
+        PriceLevel(f"跌破近{tf}低点", swing_lo, "<="),
+        PriceLevel("跌破 SMA20", s20, "<="),
+    ]
+    if s20 > s50:
+        short_levels.append(PriceLevel("跌破 SMA50", s50, "<="))
 
-    s20 = float(sma20[-1]) if not np.isnan(sma20[-1]) else None
-    s50 = float(sma50[-1]) if not np.isnan(sma50[-1]) else None
-
-    long_parts = [rsi_long, f"突破近 {tf} 高点 {_fmt_price(swing_hi)}"]
-    short_parts = [rsi_short, f"跌破近 {tf} 低点 {_fmt_price(swing_lo)}"]
-
-    if s20 is not None and price < s20:
-        long_parts.append(f"价格 {_fmt_price(price)} 重新站上 SMA20 {_fmt_price(s20)}")
-    if s50 is not None and s20 is not None and s20 > s50:
-        short_parts.append(f"价格跌破 SMA20 {_fmt_price(s20)} 且 SMA20 下穿 SMA50")
+    rsi_val = _last_rsi(closes, 14)
+    long_summary = f"现价 {_fmt_price(price)}" + (f"，RSI {rsi_val:.1f}" if rsi_val is not None else "")
+    short_summary = f"支撑 {_fmt_price(swing_lo)} / 阻力 {_fmt_price(swing_hi)}"
 
     return [
-        TimingHint("long", "做多时机", "；".join(long_parts[:2]), long_parts[0]),
-        TimingHint("short", "做空时机", "；".join(short_parts[:2]), short_parts[0]),
+        _make_hint(side="long", title="做多时机", levels=long_levels, summary=long_summary, current_price=price),
+        _make_hint(side="short", title="做空时机", levels=short_levels, summary=short_summary, current_price=price),
     ]
 
 
@@ -226,5 +307,5 @@ def build_watch_timing_hints(
     return _hints_generic(ohlcv, settings)
 
 
-def timing_hints_to_dicts(hints: list[TimingHint]) -> list[dict[str, str]]:
+def timing_hints_to_dicts(hints: list[TimingHint]) -> list[dict[str, str | float | list[dict[str, str | float]]]]:
     return [h.to_dict() for h in hints]

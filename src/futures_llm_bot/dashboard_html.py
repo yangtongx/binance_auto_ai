@@ -138,8 +138,16 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .probe-timing-item:last-child { margin-bottom: 0; }
   .probe-timing-item .side-long { color: var(--long); font-weight: 600; }
   .probe-timing-item .side-short { color: var(--short); font-weight: 600; }
-  .probe-timing-trigger { color: var(--text); margin-top: 0.2rem; }
+  .probe-timing-trigger { color: var(--text); margin-top: 0.2rem; font-weight: 600; }
+  .probe-timing-levels { margin-top: 0.35rem; padding-left: 0.1rem; }
+  .probe-timing-levels li {
+    list-style: none; padding: 0.2rem 0; font-variant-numeric: tabular-nums;
+    border-bottom: 1px dashed var(--border);
+  }
+  .probe-timing-levels li:last-child { border-bottom: none; }
+  .probe-timing-levels .lv-price { color: var(--accent); font-weight: 700; margin-left: 0.25rem; }
   .probe-timing-summary { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
+  .probe-timing-now { color: var(--muted); font-size: 0.75rem; margin-top: 0.25rem; }
 </style>
 </head>
 <body>
@@ -513,9 +521,21 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         html += '<div class="probe-timing"><div class="probe-timing-title">观望 · 时机参考</div>';
         hints.forEach((h) => {
           const sideCls = h.side === "long" ? "side-long" : "side-short";
-          html += '<div class="probe-timing-item"><span class="' + sideCls + '">' + (h.title || "") +
-            '</span><div class="probe-timing-trigger">' + (h.trigger || "") + '</div>' +
-            '<div class="probe-timing-summary">' + (h.summary || "") + '</div></div>';
+          html += '<div class="probe-timing-item"><span class="' + sideCls + '">' + (h.title || "") + '</span>';
+          if (h.levels && h.levels.length) {
+            html += '<ul class="probe-timing-levels">';
+            h.levels.forEach((lv) => {
+              html += '<li>' + (lv.label || "") + ' ' + (lv.op || "") +
+                ' <span class="lv-price">' + (lv.price_fmt || lv.price) + '</span></li>';
+            });
+            html += '</ul>';
+          } else {
+            html += '<div class="probe-timing-trigger">' + (h.trigger || "") + '</div>';
+          }
+          if (h.current_price_fmt) {
+            html += '<div class="probe-timing-now">现价 ' + h.current_price_fmt + '</div>';
+          }
+          html += '<div class="probe-timing-summary">' + (h.summary || "") + '</div></div>';
         });
         html += '</div>';
       }

@@ -8,6 +8,7 @@ import sys
 
 from futures_llm_bot.config import Settings
 from futures_llm_bot.signal_probe import evaluate_symbol_signal
+from futures_llm_bot.signal_timing_hints import _fmt_price
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,9 +43,11 @@ def main(argv: list[str] | None = None) -> int:
         if result.risk_message:
             print(f"风控: {result.risk_message}（当前配置下不会自动下单）")
         if result.timing_hints:
-            print("--- 观望 · 时机参考 ---")
+            print("--- 观望 · 时机参考（具体点位）---")
             for h in result.timing_hints:
-                print(f"[{h.title}] {h.trigger}")
+                print(f"[{h.title}] 现价 {_fmt_price(h.current_price)}")
+                for lv in h.levels:
+                    print(f"  · {lv.line()}")
                 if h.summary:
                     print(f"  {h.summary}")
     return 0 if result.ok else 1
