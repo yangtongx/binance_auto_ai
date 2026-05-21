@@ -37,6 +37,36 @@ def build_exchange(settings: Settings) -> ccxt.binanceusdm:
     return ex
 
 
+def fetch_exchange_hedged(ex: ccxt.binanceusdm) -> bool | None:
+    """Return True if Binance account is dual-side (hedge); None if API check failed."""
+    try:
+        out = ex.fetchPositionMode()
+        return bool(out.get("hedged"))
+    except ccxt.BaseError as e:
+        logger.warning("fetchPositionMode failed (%s)", e)
+        return None
+
+
+def verify_position_mode_alignment(ex: ccxt.binanceusdm, settings: Settings) -> None:
+    """Fail fast when POSITION_MODE=oneway|hedge disagrees with the exchange account."""
+    forced = settings.position_mode.lower().strip()
+    if forced not in ("oneway", "hedge") or not settings.binance_api_key:
+        return
+    actual = fetch_exchange_hedged(ex)
+    if actual is None:
+        return
+    want_hedged = forced == "hedge"
+    if actual == want_hedged:
+        return
+    exchange_mode = "双向持仓 (hedge)" if actual else "单向持仓 (one-way)"
+    env_mode = "hedge" if want_hedged else "oneway"
+    raise SystemExit(
+        f"POSITION_MODE={env_mode} 与币安账户不一致（当前为 {exchange_mode}）。"
+        f" 请改 POSITION_MODE=auto，或在币安合约设置里切换持仓模式；"
+        f" 错误 -4061 即由此引起。"
+    )
+
+
 def resolve_account_hedged(ex: ccxt.binanceusdm, settings: Settings) -> bool:
     mode = settings.position_mode.lower().strip()
     if mode == "oneway":
@@ -47,12 +77,10 @@ def resolve_account_hedged(ex: ccxt.binanceusdm, settings: Settings) -> bool:
         raise ValueError(f"POSITION_MODE must be auto|oneway|hedge, got {settings.position_mode!r}")
     if not settings.binance_api_key:
         return False
-    try:
-        out = ex.fetchPositionMode()
-        return bool(out.get("hedged"))
-    except ccxt.BaseError as e:
-        logger.warning("fetchPositionMode failed (%s); assuming one-way", e)
+    actual = fetch_exchange_hedged(ex)
+    if actual is None:
         return False
+    return actual
 
 
 def execute_signal(

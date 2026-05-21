@@ -16,6 +16,7 @@ from futures_llm_bot.binance_usdm import (
     fetch_futures_usdt_equity,
     format_account_context,
     resolve_account_hedged,
+    verify_position_mode_alignment,
 )
 from futures_llm_bot.backtest.engine import Strategy
 from futures_llm_bot.config import Settings
@@ -392,9 +393,11 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
     else:
         apply_symbol_leverage(ex, settings)
     try:
+        verify_position_mode_alignment(ex, settings)
         account_hedged = resolve_account_hedged(ex, settings)
     except ValueError as e:
         raise SystemExit(str(e)) from e
+    logger.info("position mode: %s (account_hedged=%s)", settings.position_mode, account_hedged)
     session = SessionRisk(settings)
     boot_syms = candidate_pool.symbols() if candidate_pool is not None else None
     dashboard_state.set_boot_config(settings, candidate_symbols=boot_syms)
