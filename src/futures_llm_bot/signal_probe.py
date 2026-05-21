@@ -18,7 +18,8 @@ from futures_llm_bot.risk import assess_signal
 from futures_llm_bot.schemas import Action, LLMSignal
 from futures_llm_bot.strategy_factory import build_live_strategy, strategy_min_ohlcv_bars
 from futures_llm_bot.symbol_input import resolve_usdm_symbol
-from futures_llm_bot.symbol_picker import evaluate_candidate_signals
+from futures_llm_bot.risk_metrics import var_tail_block_reason_from_ohlcv
+from futures_llm_bot.signal_timing_hints import TimingHint, build_watch_timing_hints, timing_hints_to_dicts
 from futures_llm_bot.telegram_format import _ACTION_CN
 from futures_llm_bot.time_display import format_iso_to_display, utc_now_iso
 
@@ -45,6 +46,7 @@ class SignalProbeResult:
     would_trade: bool = False
     risk_message: str = ""
     error: str = ""
+    timing_hints: tuple[TimingHint, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -66,6 +68,9 @@ class SignalProbeResult:
             "would_trade": self.would_trade,
             "risk_message": self.risk_message,
             "error": self.error,
+            "timing_hints": timing_hints_to_dicts(list(self.timing_hints))
+            if self.timing_hints
+            else [],
             "signal": {
                 "action": self.action,
                 "size_pct": self.size_pct,
@@ -91,8 +96,10 @@ def build_klines_prompt(
     settings: Settings,
     *,
     account_context: str = "",
+    ohlcv: list[list[float]] | None = None,
 ) -> str:
-    ohlcv = ex.fetch_ohlcv(settings.symbol, timeframe=settings.timeframe, limit=settings.klines_limit)
+    if ohlcv is None:
+        ohlcv = ex.fetch_ohlcv(settings.symbol, timeframe=settings.timeframe, limit=settings.klines_limit)
     rows = ["time,open,high,low,close,volume"]
     for ts, o, h, low, c, v in ohlcv[-30:]:
         t = datetime.fromtimestamp(ts / 1000, tz=timezone.utc).isoformat()
@@ -125,6 +132,30 @@ def _strategy_label(settings: Settings) -> str:
     return settings.strategy_name
 
 
+def _apply_var_gate(
+    ohlcv: list[list[float]], settings: Settings, signal: LLMSignal
+) -> LLMSignal:
+    if (
+        settings.risk_var_window > 0
+        and settings.risk_var_block
+        and signal.action in (Action.LONG, Action.SHORT)
+    ):
+        vmsg = var_tail_block_reason_from_ohlcv(
+            ohlcv,
+            window=settings.risk_var_window,
+            alpha=settings.risk_var_alpha,
+            tail_limit=settings.risk_var_tail_limit,
+        )
+        if vmsg:
+            return LLMSignal(
+                action=Action.HOLD,
+                size_pct=0.0,
+                confidence=signal.confidence,
+                reason=f"var_blocked: {vmsg}",
+            )
+    return signal
+
+
 def _result_from_signal(
     *,
     symbol_input: str,
@@ -132,6 +163,7 @@ def _result_from_signal(
     signal: LLMSignal,
     settings: Settings,
     source: str,
+    ohlcv: list[list[float]] | None = None,
 ) -> SignalProbeResult:
     action = signal.action.value
     action_cn = _ACTION_CN.get(action, action)
@@ -139,6 +171,9 @@ def _result_from_signal(
     decision = assess_signal(signal, settings.min_confidence)
     would_trade = decision.allowed and signal.action in (Action.LONG, Action.SHORT)
     at = utc_now_iso()
+    hints: tuple[TimingHint, ...] = ()
+    if advice == "watch" and ohlcv:
+        hints = tuple(build_watch_timing_hints(ohlcv, settings, signal))
     return SignalProbeResult(
         ok=True,
         symbol_input=symbol_input,
@@ -157,6 +192,7 @@ def _result_from_signal(
         at_display=format_iso_to_display(at, compact=True),
         would_trade=would_trade,
         risk_message="" if would_trade else (decision.message or ""),
+        timing_hints=hints,
     )
 
 
@@ -182,14 +218,15 @@ def evaluate_symbol_signal(
         if settings.signal_source == "strategy":
             strategy = build_live_strategy(run_settings)
             need = _ohlcv_fetch_limit(run_settings)
-            signals = evaluate_candidate_signals(ex, run_settings, strategy, [symbol], ohlcv_limit=need)
-            signal = signals[symbol]
+            ohlcv = ex.fetch_ohlcv(symbol, timeframe=run_settings.timeframe, limit=need)
+            signal = _apply_var_gate(ohlcv, run_settings, strategy.on_bar(len(ohlcv) - 1, ohlcv))
             return _result_from_signal(
                 symbol_input=raw,
                 symbol=symbol,
                 signal=signal,
                 settings=run_settings,
                 source="strategy",
+                ohlcv=ohlcv,
             )
 
         try:
@@ -197,7 +234,9 @@ def evaluate_symbol_signal(
         except ValueError:
             account_hedged = False
         account_ctx = format_account_context(ex, run_settings, account_hedged=account_hedged)
-        prompt = build_klines_prompt(ex, run_settings, account_context=account_ctx)
+        need = _ohlcv_fetch_limit(run_settings)
+        ohlcv = ex.fetch_ohlcv(symbol, timeframe=run_settings.timeframe, limit=need)
+        prompt = build_klines_prompt(ex, run_settings, account_context=account_ctx, ohlcv=ohlcv)
         signal = llm_decide(run_settings, prompt)
         return _result_from_signal(
             symbol_input=raw,
@@ -205,6 +244,7 @@ def evaluate_symbol_signal(
             signal=signal,
             settings=run_settings,
             source="llm",
+            ohlcv=ohlcv,
         )
     except ccxt.BaseError as e:
         logger.warning("signal probe exchange error for %s: %s", raw, e)

@@ -41,6 +41,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"原因: {result.reason}")
         if result.risk_message:
             print(f"风控: {result.risk_message}（当前配置下不会自动下单）")
+        if result.timing_hints:
+            print("--- 观望 · 时机参考 ---")
+            for h in result.timing_hints:
+                print(f"[{h.title}] {h.trigger}")
+                if h.summary:
+                    print(f"  {h.summary}")
     return 0 if result.ok else 1
 
 

@@ -130,6 +130,16 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   .probe-advice.short { color: var(--short); }
   .probe-advice.watch { color: var(--muted); }
   .probe-hint { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
+  .probe-timing {
+    margin-top: 0.75rem; padding-top: 0.65rem; border-top: 1px solid var(--border);
+  }
+  .probe-timing-title { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem; }
+  .probe-timing-item { margin-bottom: 0.65rem; font-size: 0.82rem; line-height: 1.4; }
+  .probe-timing-item:last-child { margin-bottom: 0; }
+  .probe-timing-item .side-long { color: var(--long); font-weight: 600; }
+  .probe-timing-item .side-short { color: var(--short); font-weight: 600; }
+  .probe-timing-trigger { color: var(--text); margin-top: 0.2rem; }
+  .probe-timing-summary { color: var(--muted); font-size: 0.78rem; margin-top: 0.15rem; }
 </style>
 </head>
 <body>
@@ -176,7 +186,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
         <input class="probe-input" id="probe-symbol" type="text" placeholder="输入币种，如 DOGE、BTCUSDT、BTC/USDT:USDT" autocomplete="off"/>
         <button type="button" class="probe-btn" id="probe-btn">分析信号</button>
       </div>
-      <p class="probe-hint">使用当前机器人策略（与自动交易相同规则），返回做多 / 做空 / 观望，不会下单。</p>
+      <p class="probe-hint">使用当前机器人策略（与自动交易相同规则），返回做多 / 做空 / 观望；观望时会附带做多/做空时机参考，不会下单。</p>
       <div id="probe-result" class="probe-result"></div>
     </div>
   </section>
@@ -497,6 +507,17 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       html += '<div style="margin-top:0.35rem;color:var(--muted)">' + (j.reason || "—") + '</div>';
       if (j.risk_message) {
         html += '<div style="margin-top:0.35rem;color:var(--warn)">风控: ' + j.risk_message + '</div>';
+      }
+      const hints = j.timing_hints || [];
+      if ((j.advice === "watch" || j.action === "hold") && hints.length) {
+        html += '<div class="probe-timing"><div class="probe-timing-title">观望 · 时机参考</div>';
+        hints.forEach((h) => {
+          const sideCls = h.side === "long" ? "side-long" : "side-short";
+          html += '<div class="probe-timing-item"><span class="' + sideCls + '">' + (h.title || "") +
+            '</span><div class="probe-timing-trigger">' + (h.trigger || "") + '</div>' +
+            '<div class="probe-timing-summary">' + (h.summary || "") + '</div></div>';
+        });
+        html += '</div>';
       }
       html += '<div class="probe-hint">' + (j.at_display || j.at || "") +
         (j.would_trade ? " · 若自动交易且通过风控会下单" : " · 仅观望/未达置信度，不会自动下单") + '</div>';
