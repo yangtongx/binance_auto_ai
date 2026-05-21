@@ -47,6 +47,8 @@
 
 更细的流程图与模块表见 **[ARCHITECTURE.md](ARCHITECTURE.md)**（英文）。
 
+**想读懂源码？** 从 **[docs/BEGINNER_ZH.md](docs/BEGINNER_ZH.md)** 开始（中文、按步骤、适合初学者）。
+
 ---
 
 ## 环境要求
