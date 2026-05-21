@@ -30,6 +30,7 @@ futures-llm-bot = "futures_llm_bot.cli:main"
 futures-llm-backtest = "futures_llm_bot.backtest_cli:main"
 futures-llm-real-pnl = "futures_llm_bot.real_pnl_cli:main"
 futures-llm-var-validate = "futures_llm_bot.var_validation_cli:main"
+futures-llm-signal = "futures_llm_bot.signal_cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 

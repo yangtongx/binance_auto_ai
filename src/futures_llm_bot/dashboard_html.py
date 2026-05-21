@@ -105,6 +105,31 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
     margin-top: 0.65rem; padding: 0.55rem 0.75rem; border-radius: 8px;
     background: rgba(91,141,239,.12); border: 1px solid rgba(91,141,239,.35); font-size: 0.82rem;
   }
+  .probe-row {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center;
+  }
+  .probe-input {
+    flex: 1; min-width: 10rem; padding: 0.45rem 0.65rem; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+    font-family: inherit; font-size: 0.88rem;
+  }
+  .probe-btn {
+    padding: 0.45rem 1rem; border-radius: 8px; border: 1px solid var(--accent);
+    background: rgba(91,141,239,.2); color: var(--accent); font-weight: 600;
+    font-family: inherit; font-size: 0.85rem; cursor: pointer;
+  }
+  .probe-btn:disabled { opacity: 0.5; cursor: wait; }
+  .probe-result {
+    margin-top: 0.75rem; padding: 0.75rem; border-radius: 8px;
+    background: var(--surface2); border: 1px solid var(--border); font-size: 0.85rem;
+    line-height: 1.45; display: none;
+  }
+  .probe-result.visible { display: block; }
+  .probe-advice { font-size: 1.35rem; font-weight: 700; margin-bottom: 0.35rem; }
+  .probe-advice.long { color: var(--long); }
+  .probe-advice.short { color: var(--short); }
+  .probe-advice.watch { color: var(--muted); }
+  .probe-hint { color: var(--muted); font-size: 0.75rem; margin-top: 0.35rem; }
 </style>
 </head>
 <body>
@@ -143,6 +168,18 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       <div class="range-meta" id="range-meta">—</div>
     </section>
   </div>
+
+  <section>
+    <div class="section-title">手动诊币（仅分析，不下单）</div>
+    <div class="card">
+      <div class="probe-row">
+        <input class="probe-input" id="probe-symbol" type="text" placeholder="输入币种，如 DOGE、BTCUSDT、BTC/USDT:USDT" autocomplete="off"/>
+        <button type="button" class="probe-btn" id="probe-btn">分析信号</button>
+      </div>
+      <p class="probe-hint">使用当前机器人策略（与自动交易相同规则），返回做多 / 做空 / 观望，不会下单。</p>
+      <div id="probe-result" class="probe-result"></div>
+    </div>
+  </section>
 
   <section>
     <div class="section-title">运行配置</div>
@@ -198,7 +235,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   </section>
 
   <div id="err" class="error"></div>
-  <p class="links">接口: <a href="/health">/health</a> · <a href="/api/status">/api/status</a> · <a href="/api/equity?range=1d">/api/equity</a> · <a href="/metrics">/metrics</a></p>
+  <p class="links">接口: <a href="/health">/health</a> · <a href="/api/status">/api/status</a> · <a href="/api/equity?range=1d">/api/equity</a> · <a href="/api/signal?symbol=BTC">/api/signal</a> · <a href="/metrics">/metrics</a></p>
 </main>
 <script>
 (function () {
@@ -431,6 +468,48 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   }
   document.querySelectorAll(".range-btn").forEach((b) => {
     b.addEventListener("click", () => setRange(b.dataset.range));
+  });
+  async function runProbe() {
+    const sym = (el("probe-symbol").value || "").trim();
+    const box = el("probe-result");
+    const btn = el("probe-btn");
+    if (!sym) {
+      box.className = "probe-result visible";
+      box.innerHTML = '<span class="probe-hint">请先输入币种</span>';
+      return;
+    }
+    btn.disabled = true;
+    box.className = "probe-result visible";
+    box.innerHTML = '<span class="probe-hint">分析中…</span>';
+    try {
+      const resp = await fetch("/api/signal?symbol=" + encodeURIComponent(sym), { cache: "no-store" });
+      const j = await resp.json();
+      if (!j.ok) {
+        box.innerHTML = '<span style="color:var(--bad)">' + (j.error || ("HTTP " + resp.status)) + '</span>';
+        return;
+      }
+      const cls = j.advice || "watch";
+      let html = '<div class="probe-advice ' + cls + '">' + (j.advice_cn || "—") + '</div>';
+      html += '<div><strong>' + (j.symbol || "") + '</strong> · 动作 <span class="' + actionClass(j.action) + '">' +
+        (j.action_cn || j.action || "") + '</span></div>';
+      html += '<div>置信度 ' + fmt(j.confidence, 2) + ' · 仓位 ' + fmt(j.size_pct, 0) + '% · ' +
+        (j.strategy_label || j.source || "") + ' · ' + (j.timeframe || "") + '</div>';
+      html += '<div style="margin-top:0.35rem;color:var(--muted)">' + (j.reason || "—") + '</div>';
+      if (j.risk_message) {
+        html += '<div style="margin-top:0.35rem;color:var(--warn)">风控: ' + j.risk_message + '</div>';
+      }
+      html += '<div class="probe-hint">' + (j.at_display || j.at || "") +
+        (j.would_trade ? " · 若自动交易且通过风控会下单" : " · 仅观望/未达置信度，不会自动下单") + '</div>';
+      box.innerHTML = html;
+    } catch (e) {
+      box.innerHTML = '<span style="color:var(--bad)">请求失败: ' + e + '</span>';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  el("probe-btn").addEventListener("click", runProbe);
+  el("probe-symbol").addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") runProbe();
   });
   poll();
   setInterval(poll, 3000);

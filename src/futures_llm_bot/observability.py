@@ -9,7 +9,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from futures_llm_bot import dashboard_state, metrics
+from futures_llm_bot.config import Settings
 from futures_llm_bot.dashboard_html import DASHBOARD_HTML
+from futures_llm_bot.signal_probe import evaluate_symbol_signal
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,20 @@ def start_observability_background(host: str, port: int) -> threading.Thread:
                 payload = dashboard_state.equity_range(range_key)
                 body = json.dumps(payload).encode("utf-8")
                 self._send_body(200, body, "application/json; charset=utf-8")
+            elif path == "/api/signal":
+                qs = parse_qs(parsed.query)
+                symbol_raw = (qs.get("symbol") or [""])[0].strip()
+                try:
+                    settings = Settings()
+                    result = evaluate_symbol_signal(settings, symbol_raw)
+                    payload = result.to_dict()
+                    code = 200 if result.ok else 400
+                except Exception as e:
+                    logger.exception("api/signal failed")
+                    payload = {"ok": False, "error": str(e), "symbol_input": symbol_raw}
+                    code = 500
+                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+                self._send_body(code, body, "application/json; charset=utf-8")
             elif path == "/metrics":
                 body = metrics.prometheus_text().encode("utf-8")
                 self._send_body(200, body, "text/plain; charset=utf-8")
@@ -58,7 +74,7 @@ def start_observability_background(host: str, port: int) -> threading.Thread:
     def _run() -> None:
         server = HTTPServer((host, port), _Handler)
         logger.info(
-            "observability listening on http://%s:%s (/, /dashboard, /health, /api/status, /api/equity, /metrics)",
+            "observability listening on http://%s:%s (/, /dashboard, /health, /api/status, /api/equity, /api/signal, /metrics)",
             host,
             port,
         )
