@@ -1,4 +1,4 @@
-"""Self-contained trading monitor UI (no CDN). Polls ``/health``."""
+"""交易监控面板 HTML（无 CDN）：轮询 /health、/api/equity、手动诊币 /api/signal。"""
 
 DASHBOARD_HTML = r"""<!DOCTYPE html>
 <html lang="zh-CN">

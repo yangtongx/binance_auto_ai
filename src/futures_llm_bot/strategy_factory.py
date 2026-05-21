@@ -1,4 +1,4 @@
-"""Construct live rule strategies (same classes as backtest)."""
+"""实盘规则策略工厂：与回测共用策略类，由 STRATEGY_NAME 选择（如 sma_cross）。"""
 
 from __future__ import annotations
 

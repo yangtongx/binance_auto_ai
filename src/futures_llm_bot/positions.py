@@ -1,3 +1,5 @@
+"""持仓与余额查询：解析币安仓位腿、权益、可用保证金、账户上下文文案。"""
+
 from __future__ import annotations
 
 import logging

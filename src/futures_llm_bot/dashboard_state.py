@@ -1,4 +1,4 @@
-"""In-memory runtime state for the trading dashboard (no database)."""
+"""监控面板运行时状态：权益曲线、决策记录、候选信号等（内存 + 可选落盘）。"""
 
 from __future__ import annotations
 

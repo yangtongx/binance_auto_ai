@@ -1,4 +1,4 @@
-"""Resolve user-typed symbols to CCXT USDT-M linear perpetual ids."""
+"""用户输入币种解析：DOGE / BTCUSDT / BTC/USDT:USDT → 币安 USDT 永续标准 symbol。"""
 
 from __future__ import annotations
 

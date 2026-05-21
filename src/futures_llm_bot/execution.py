@@ -1,4 +1,4 @@
-"""Exchange bootstrap and trade execution (delegates one-way vs hedge)."""
+"""交易所连接与下单入口：按账户持仓模式分发到单向或双向执行模块。"""
 
 from __future__ import annotations
 
@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_exchange(settings: Settings) -> ccxt.binanceusdm:
+    """创建币安 USDT-M CCXT 实例（主网/测试网、代理）。"""
     cfg: dict = {
         "apiKey": settings.binance_api_key,
         "secret": settings.binance_api_secret,
@@ -38,7 +39,7 @@ def build_exchange(settings: Settings) -> ccxt.binanceusdm:
 
 
 def fetch_exchange_hedged(ex: ccxt.binanceusdm) -> bool | None:
-    """Return True if Binance account is dual-side (hedge); None if API check failed."""
+    """查询币安是否为双向持仓；失败返回 None。"""
     try:
         out = ex.fetchPositionMode()
         return bool(out.get("hedged"))
@@ -48,7 +49,7 @@ def fetch_exchange_hedged(ex: ccxt.binanceusdm) -> bool | None:
 
 
 def verify_position_mode_alignment(ex: ccxt.binanceusdm, settings: Settings) -> None:
-    """Fail fast when POSITION_MODE=oneway|hedge disagrees with the exchange account."""
+    """POSITION_MODE 写死为 oneway/hedge 时，与币安实际模式不一致则启动失败（避免 -4061）。"""
     forced = settings.position_mode.lower().strip()
     if forced not in ("oneway", "hedge") or not settings.binance_api_key:
         return
@@ -68,6 +69,7 @@ def verify_position_mode_alignment(ex: ccxt.binanceusdm, settings: Settings) -> 
 
 
 def resolve_account_hedged(ex: ccxt.binanceusdm, settings: Settings) -> bool:
+    """是否按双向持仓下单（含 positionSide）；auto 时查币安 API。"""
     mode = settings.position_mode.lower().strip()
     if mode == "oneway":
         return False
@@ -95,6 +97,7 @@ def execute_signal(
     session: SessionRisk | None = None,
     on_real_order: Callable[[], None] | None = None,
 ) -> None:
+    """根据信号执行 hold / flat / long / short；内部选择 execute_oneway 或 execute_hedged。"""
     if signal.action == Action.HOLD:
         logger.info("HOLD — no order")
         return

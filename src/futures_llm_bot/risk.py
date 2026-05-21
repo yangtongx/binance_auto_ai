@@ -1,3 +1,5 @@
+"""信号级风控：置信度与仓位比例门槛（不含日亏损/日笔数，见 session_risk）。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,15 +9,18 @@ from futures_llm_bot.schemas import Action, LLMSignal
 
 @dataclass
 class RiskDecision:
+    """是否允许按该信号下单。"""
+
     allowed: bool
     message: str
 
 
 def assess_signal(signal: LLMSignal, min_confidence: float) -> RiskDecision:
+    """检查 long/short 是否满足 MIN_CONFIDENCE；hold/flat 始终放行。"""
     if signal.action == Action.HOLD:
         return RiskDecision(True, "hold always allowed")
 
-    # Exiting / reducing exposure should not be gated on model confidence.
+    # 平仓不卡置信度
     if signal.action == Action.FLAT:
         return RiskDecision(True, "flat always allowed")
 

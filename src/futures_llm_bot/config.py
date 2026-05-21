@@ -1,3 +1,5 @@
+"""运行时配置：从 .env / 环境变量 / Docker secrets 加载，字段与 deploy/server.env 对应。"""
+
 from __future__ import annotations
 
 import os
@@ -61,6 +63,8 @@ _load_docker_secrets()
 
 
 class Settings(BaseSettings):
+    """机器人全部可调参数（交易所、策略、选币、仓位、风控、通知、监控面板）。"""
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE) if _ENV_FILE.is_file() else None,
         env_file_encoding="utf-8",
@@ -164,8 +168,9 @@ class Settings(BaseSettings):
     ws_reconnect_max_sec: float = Field(default=60.0, gt=0.0, le=3600.0, validation_alias="WS_RECONNECT_MAX_SEC")
     ws_reconnect_jitter: float = Field(default=0.25, ge=0.0, le=1.0, validation_alias="WS_RECONNECT_JITTER")
 
+    # --- 交易对与选币 ---
     symbol: str = Field(default="BTC/USDT:USDT", validation_alias="SYMBOL")
-    # single: trade SYMBOL only. signal_pick: SYMBOL_CANDIDATES whitelist, strongest signal each minute, one position.
+    # single=只交易 SYMBOL；signal_pick=候选池每分钟选最强信号，同时只持一仓
     symbol_mode: str = Field(default="single", validation_alias="SYMBOL_MODE")
     symbol_candidates: str = Field(
         default="auto",
@@ -219,13 +224,14 @@ class Settings(BaseSettings):
     )
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
+    # --- 仓位与名义金额 ---
     max_notional_usdt: float = Field(default=50.0, gt=0, validation_alias="MAX_NOTIONAL_USDT")
-    # fixed: MAX_NOTIONAL_USDT × size_pct.
-    # equity_leverage: wallet total × LEVERAGE × size_pct.
-    # available_margin_leverage: available margin × LEVERAGE × size_pct (recommended for live).
+    # fixed：MAX_NOTIONAL_USDT × size_pct
+    # equity_leverage：钱包总权益 × LEVERAGE × size_pct
+    # available_margin_leverage：可用保证金 × LEVERAGE × size_pct（实盘常用）
     position_sizing: str = Field(default="fixed", validation_alias="POSITION_SIZING")
     leverage: float = Field(default=1.0, ge=1.0, le=150.0, validation_alias="LEVERAGE")
-    dry_run: bool = Field(default=True, validation_alias="DRY_RUN")
+    dry_run: bool = Field(default=True, validation_alias="DRY_RUN")  # true=只打日志不下单
 
     min_confidence: float = Field(default=0.55, ge=0.0, le=1.0, validation_alias="MIN_CONFIDENCE")
 
@@ -233,9 +239,10 @@ class Settings(BaseSettings):
     position_poll_interval_sec: float = Field(default=0.15, gt=0, validation_alias="POSITION_POLL_INTERVAL_SEC")
     position_poll_timeout_sec: float = Field(default=5.0, gt=0, validation_alias="POSITION_POLL_TIMEOUT_SEC")
 
-    # auto: call Binance position mode API when keys exist; oneway|hedge: trust env
+    # auto=读币安持仓模式；oneway|hedge=强制单向/双向（须与账户一致，否则 -4061）
     position_mode: str = Field(default="auto", validation_alias="POSITION_MODE")
 
+    # --- 会话风控（UTC 日）---
     max_trades_per_day: int = Field(default=0, ge=0, validation_alias="MAX_TRADES_PER_DAY")
     max_daily_loss_usdt: float = Field(default=0.0, ge=0, validation_alias="MAX_DAILY_LOSS_USDT")
     daily_loss_warn_ratio: float = Field(default=0.8, ge=0.0, le=1.0, validation_alias="DAILY_LOSS_WARN_RATIO")

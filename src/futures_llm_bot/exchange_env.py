@@ -1,4 +1,4 @@
-"""Binance USDT-M environment: mainnet vs demo (replaces deprecated futures testnet sandbox)."""
+"""币安 USDT-M 环境：主网/演示盘、代理、加载市场、设置杠杆。"""
 
 from __future__ import annotations
 

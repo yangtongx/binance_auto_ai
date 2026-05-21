@@ -1,4 +1,4 @@
-"""When the probe says watch/hold, suggest what would trigger long or short with concrete prices."""
+"""观望时的时机参考：给出做多/做空的具体触发价位（高点、均线、金叉死叉等）。"""
 
 from __future__ import annotations
 

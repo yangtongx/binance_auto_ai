@@ -1,4 +1,4 @@
-"""Vector-bar backtest with spot-style signed position and fee on notional."""
+"""回测引擎：按 K 线收盘遍历，支持 long/short/flat/hold 与手续费。"""
 
 from __future__ import annotations
 

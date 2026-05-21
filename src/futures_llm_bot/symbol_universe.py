@@ -1,4 +1,4 @@
-"""Auto-build SYMBOL_CANDIDATES from Binance USDT-M filters and a configurable rank key."""
+"""自动候选池：按流动性/OI/涨跌幅等复合排名，从币安全市场筛 USDT 永续。"""
 
 from __future__ import annotations
 
@@ -416,7 +416,7 @@ def select_top_usdm_candidates(
 
 
 class CandidatePool:
-    """Resolved whitelist for ``signal_pick`` (manual list or auto refresh)."""
+    """signal_pick 候选池：手动列表或按 SYMBOL_CANDIDATES_REFRESH_* 定时自动刷新。"""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings

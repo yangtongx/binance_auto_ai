@@ -1,4 +1,4 @@
-"""Shared order primitives for one-way and hedge execution paths."""
+"""下单共用逻辑：名义金额计算、reduceOnly 平仓、在 MAX_NOTIONAL  cap 内开仓。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def directional_notional_or_skip(
     equity_usdt: float | None = None,
     available_margin_usdt: float | None = None,
 ) -> float | None:
-    """Return USDT notional intent for LONG/SHORT; log and return ``None`` if not applicable or zero."""
+    """计算 long/short 意向名义金额（USDT）；见 POSITION_SIZING 与 signal.size_pct。"""
     if signal.action not in (Action.LONG, Action.SHORT):
         return None
     pct = signal.size_pct / 100.0
@@ -127,9 +127,9 @@ def open_market_within_notional_cap(
     skip_limits_log: str,
 ) -> None:
     """
-    Compute ``room`` under ``MAX_NOTIONAL_USDT``, clamp ``requested``, then market ``place_order``.
+    在 MAX_NOTIONAL_USDT 剩余额度内下市价单。
 
-    ``exposure_abs`` is whichever leg/notional already consumes the cap (abs net, long leg, or short leg).
+    exposure_abs：该币已占用名义（净仓或单腿），room = cap - exposure_abs。
     """
     room = max(0.0, settings.max_notional_usdt - exposure_abs)
     target_notional = min(requested, room)

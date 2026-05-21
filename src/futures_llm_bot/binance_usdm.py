@@ -1,4 +1,4 @@
-"""Binance USDT-M integration: re-exports from focused submodules."""
+"""币安 USDT-M 对外门面：聚合 execution / positions 的常用函数。"""
 
 from futures_llm_bot.execution import (
     build_exchange,

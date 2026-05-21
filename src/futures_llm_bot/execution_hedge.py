@@ -1,4 +1,4 @@
-"""Hedge (dual-side) position mode execution for Binance USDT-M."""
+"""双向持仓模式下单：多空腿独立，订单带 positionSide=LONG/SHORT。"""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ def execute_hedged(
     available_margin_usdt: float | None = None,
     on_real_order: Callable[[], None] | None = None,
 ) -> None:
+    """分别平多腿、平空腿；开多时先平空腿。与币安双向持仓账户设置一致。"""
     symbol = settings.symbol
 
     if signal.action == Action.FLAT:

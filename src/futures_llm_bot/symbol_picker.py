@@ -1,4 +1,4 @@
-"""Pick one symbol from a whitelist by strongest rule-strategy signal (single position)."""
+"""signal_pick 选币：从候选池挑最强 long/short，并规划单仓下的平仓/换币/开仓步骤。"""
 
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SymbolPick:
+    """本轮最优标的及信号。"""
+
     symbol: str
     signal: LLMSignal
     score: float
@@ -26,6 +28,8 @@ class SymbolPick:
 
 @dataclass(frozen=True)
 class TickTradeStep:
+    """本 tick 要执行的一笔 symbol+signal。"""
+
     symbol: str
     signal: LLMSignal
 
@@ -161,10 +165,11 @@ def plan_signal_pick_trades(
     min_confidence: float,
 ) -> list[TickTradeStep]:
     """
-  Single-position policy:
-  - Flat first if rotating or explicit FLAT on held symbol.
-  - Open only the highest-confidence LONG/SHORT among candidates.
-  """
+    单仓策略：
+    - 换币或显式 FLAT 时先平掉当前持仓；
+    - 空仓时只开候选池里置信度最高的 long/short；
+    - 持仓币仅 hold 且无更优标的时不操作。
+    """
     if held_outside_whitelist and held_symbol:
         return [TickTradeStep(held_symbol, _flat_signal(reason="signal_pick: flat non-whitelist position"))]
 

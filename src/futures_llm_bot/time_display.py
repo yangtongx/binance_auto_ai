@@ -1,4 +1,4 @@
-"""Display timestamps in China Standard Time (UTC+8 / Asia/Shanghai)."""
+"""时间展示：内部存 UTC，面板与日志显示为北京时间（东八区）。"""
 
 from __future__ import annotations
 

@@ -1,3 +1,5 @@
+"""会话级风控：UTC 自然日内的成交笔数与日初权益回撤（持久化到 STATE_FILE）。"""
+
 from __future__ import annotations
 
 import json
@@ -36,10 +38,9 @@ def _save(path: Path, data: dict[str, Any]) -> None:
 
 
 class SessionRisk:
-    """Persisted per-day trade count and drawdown vs day-start USDT equity (UTC day).
+    """按 UTC 日统计成交笔数与相对日初权益的回撤；超 MAX_TRADES / MAX_DAILY_LOSS 则拦截新开仓。
 
-    File updates are serialized with a `FileLock` so concurrent bot processes do not
-    corrupt JSON; use a single instance per process.
+    状态写入 STATE_FILE，FileLock 防止多进程写坏 JSON。
     """
 
     def __init__(self, settings: Settings) -> None:

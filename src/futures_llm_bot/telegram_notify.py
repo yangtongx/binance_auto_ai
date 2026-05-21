@@ -1,4 +1,4 @@
-"""Optional Telegram alerts (Bot API ``sendMessage``)."""
+"""Telegram 通知：启动、下单、候选池刷新、报错（由 TELEGRAM_NOTIFY_* 开关控制）。"""
 
 from __future__ import annotations
 

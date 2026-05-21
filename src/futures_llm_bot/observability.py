@@ -1,4 +1,4 @@
-"""HTTP server: dashboard UI, ``/health`` JSON, and Prometheus ``/metrics``."""
+"""监控 HTTP 服务：面板 HTML、/health、/api/equity、/api/signal、Prometheus /metrics。"""
 
 from __future__ import annotations
 

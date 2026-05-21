@@ -1,4 +1,4 @@
-"""Named Telegram message templates for trade notifications."""
+"""Telegram 消息模板：做多/做空/观望中文文案与 emoji。"""
 
 from __future__ import annotations
 

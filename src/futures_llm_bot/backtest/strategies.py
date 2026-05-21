@@ -1,4 +1,4 @@
-"""Example deterministic strategies (rule-based, reproducible)."""
+"""规则策略实现（SMA/RSI/MACD 等），实盘与回测共用 on_bar 接口。"""
 
 from __future__ import annotations
 

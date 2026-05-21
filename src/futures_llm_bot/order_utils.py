@@ -1,4 +1,4 @@
-"""Helpers for sizing, polling, and placing CCXT orders (Binance USDT-M)."""
+"""下单工具：名义↔张数、最小下单量、place_order（含 DRY_RUN）与持仓轮询。"""
 
 from __future__ import annotations
 

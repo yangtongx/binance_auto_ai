@@ -1,4 +1,4 @@
-"""One-way position mode execution."""
+"""单向持仓模式下单：净仓 long/short，平仓用 reduceOnly，无 positionSide。"""
 
 from __future__ import annotations
 
@@ -34,6 +34,7 @@ def execute_oneway(
     available_margin_usdt: float | None = None,
     on_real_order: Callable[[], None] | None = None,
 ) -> None:
+    """执行 flat / long / short；反向信号时先 reduceOnly 平掉对立仓再开仓。"""
     symbol = settings.symbol
     pos = legs.signed_net()
     abs_notional = primary_exposure_notional_usdt(legs, last)

@@ -1,3 +1,5 @@
+"""LLM 信号源：调用 OpenAI 兼容 API，解析 JSON 为 LLMSignal（SIGNAL_SOURCE=llm）。"""
+
 from __future__ import annotations
 
 import json

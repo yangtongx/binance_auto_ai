@@ -1,3 +1,5 @@
+"""主程序入口：每分钟 tick、signal_pick 选币、风控、下单与监控面板。"""
+
 from __future__ import annotations
 
 import argparse
@@ -54,7 +56,7 @@ _stop_requested = False
 
 
 def _request_stop(signum: int, _frame: object) -> None:
-    """Signal handler: ask the main loop to exit gracefully after the current tick."""
+    """信号处理：当前 tick 结束后优雅退出主循环。"""
     global _stop_requested
     _stop_requested = True
     logger.info("received signal %s; stopping after current tick", signum)
@@ -93,6 +95,7 @@ def _strategy_log_label(settings: Settings) -> str:
 
 
 def _sleep_until_next_minute_close(buffer_sec: float = 2.0) -> None:
+    """对齐到下一根 1m K 线收盘后再跑策略（默认多等 2 秒缓冲）。"""
     now = time.time()
     next_close = int(now // 60) * 60 + 60
     sleep_s = max(0.0, next_close - now + buffer_sec)
@@ -139,7 +142,7 @@ def _run_trade_step(
     session: SessionRisk,
     src: str,
 ) -> bool:
-    """Apply risk gates and maybe execute one symbol/signal. Returns False if blocked."""
+    """风控 + 会话限额 + 执行下单；被拦截时返回 False。"""
     send_telegram_trade_signal(settings.model_copy(update={"symbol": symbol}), signal, source=src, equity_usdt=equity)
     decision = assess_signal(signal, settings.min_confidence)
     if not decision.allowed:
@@ -199,6 +202,7 @@ def _tick_signal_pick(
     rule_strategy: Strategy,
     candidate_pool: CandidatePool,
 ) -> None:
+    """多币候选池模式：扫描信号 → 选最强 → 规划平仓/换币/开仓步骤并执行。"""
     candidates = candidate_pool.symbols()
     need = _ohlcv_fetch_limit(settings)
     signals = evaluate_candidate_signals(ex, settings, rule_strategy, candidates, ohlcv_limit=need)
@@ -260,6 +264,7 @@ def _tick(
     ws_buffer: BinanceUsdMKlineBuffer | None = None,
     candidate_pool: CandidatePool | None = None,
 ) -> None:
+    """单次 tick：signal_pick 或单币 LLM/规则策略，最后刷新面板状态。"""
     metrics.record_tick_attempt()
     try:
         if settings.symbol_mode == "signal_pick":
@@ -377,6 +382,7 @@ def _tick(
 
 
 def run_loop(settings: Settings, *, once: bool = False) -> None:
+    """启动主循环：初始化交易所、候选池、策略，每分钟执行 _tick。"""
     if settings.observability_port > 0:
         start_observability_background(settings.observability_host, settings.observability_port)
     from futures_llm_bot.exchange_env import apply_symbol_leverage, load_binance_usdm_markets

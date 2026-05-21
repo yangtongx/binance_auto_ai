@@ -1,4 +1,4 @@
-"""On-demand signal for a single symbol (analysis only, no orders)."""
+"""手动诊币：对单个交易对拉 K 线出 long/short/观望，不下单（供面板 /api/signal）。"""
 
 from __future__ import annotations
 

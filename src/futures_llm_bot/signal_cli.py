@@ -1,4 +1,4 @@
-"""CLI: analyze one symbol (long / short / watch), no trading."""
+"""命令行诊币：futures-llm-signal，分析单币信号不下单。"""
 
 from __future__ import annotations
 
