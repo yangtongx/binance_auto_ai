@@ -2,8 +2,6 @@
 
 **语言:** [English](README.md) · [中文](README.zh.md)
 
-> 仓库名 **binance_auto_ai**（原 `futures_llm_bot`）。Python 包与命令行仍为 `futures_llm_bot` / `futures-llm-bot`，无需改代码导入路径。
-
 **binance_auto_ai** 是一个面向 **币安 USDT-M（USDⓈ-M / U 本位）线性永续合约** 的 Python 程序。它在固定周期内：**拉行情与账户状态 → 生成交易信号 → 经过风控与会话限制 → 通过 CCXT 下单**，支持 **单向持仓（one-way）** 与 **双向持仓（hedge）** 两种模式。
 
 信号有两种来源：
@@ -114,9 +112,7 @@ docker run --rm \
 
 **`/data`** 卷用于持久化 **`STATE_FILE`**（镜像内默认为 `/data/.futures_llm_bot_state.json`）。
 
-在 **[Gitee](https://gitee.com)**：仓库 **https://gitee.com/yang-huidong/binance_auto_ai** ，构建指向本 `Dockerfile`；**切勿**把 `.env` 或真实 Key 提交到代码库。
-
-**服务器推荐目录：** `/opt/binance_auto_ai`
+在 **[cnb.cool](https://cnb.cool)**：绑定仓库 **https://cnb.cool/xiaoYang-2026/futures_llm_bot** ，构建指向本 `Dockerfile`，镜像推送到你的仓库后，在运行环境中注入上述变量；**切勿**把 `.env` 或真实 Key 提交到代码库。
 
 ---
 
