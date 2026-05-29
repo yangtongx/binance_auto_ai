@@ -103,7 +103,7 @@ copy .env.example .env   # Windows；Unix 用 cp
 仓库根目录提供 **`Dockerfile`**。**禁止**把密钥写进镜像或 Git：在 **运行时环境变量** 或平台「密钥 / Secret」中配置 **`BINANCE_API_KEY`**、**`BINANCE_API_SECRET`**、**`OPENAI_API_KEY`**、**`OPENAI_BASE_URL`**、**`OPENAI_MODEL`** 等（与 `.env.example` 同名即可）。
 
 ```bash
-docker build -t futures-llm-bot:local .
+docker build -t binance_auto_ai:local .
 docker run --rm \
   -e BINANCE_API_KEY -e BINANCE_API_SECRET \
   -e OPENAI_API_KEY -e OPENAI_BASE_URL=https://api.deepseek.com -e OPENAI_MODEL=deepseek-v4-pro \
