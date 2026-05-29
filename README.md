@@ -112,9 +112,9 @@ docker run --rm \
 
 Volume **`/data`** persists session risk state (`STATE_FILE` defaults to `/data/.futures_llm_bot_state.json` in the image). Use **`futures-llm-real-pnl`** / **`futures-llm-backtest`** in CI or a sidecar only if you add those to the image (`pip install` already includes entry points).
 
-On **[cnb.cool](https://cnb.cool)**: repository **https://cnb.cool/xiaoYang-2026/binance_auto_ai** — build from this `Dockerfile`, push to your registry, inject secrets at runtime — **never** commit `.env` or keys.
+On **[Gitee](https://gitee.com)**: **https://gitee.com/yang-huidong/binance_auto_ai** — build from this `Dockerfile`; **never** commit `.env` or keys.
 
-**Recommended server path:** `/opt/binance_auto_ai`.
+**Recommended server path:** `/opt/binance_auto_ai`
 
 ---
 

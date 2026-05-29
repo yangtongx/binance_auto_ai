@@ -114,9 +114,9 @@ docker run --rm \
 
 **`/data`** 卷用于持久化 **`STATE_FILE`**（镜像内默认为 `/data/.futures_llm_bot_state.json`）。
 
-在 **[cnb.cool](https://cnb.cool)**：仓库 **https://cnb.cool/xiaoYang-2026/binance_auto_ai** ，构建指向本 `Dockerfile`，镜像推送到你的仓库后，在运行环境中注入上述变量；**切勿**把 `.env` 或真实 Key 提交到代码库。
+在 **[Gitee](https://gitee.com)**：仓库 **https://gitee.com/yang-huidong/binance_auto_ai** ，构建指向本 `Dockerfile`；**切勿**把 `.env` 或真实 Key 提交到代码库。
 
-**服务器推荐目录：** `/opt/binance_auto_ai`（原 `/opt/futures_llm_bot` 可 `git remote` 更新后 `mv` 或重新 clone）。
+**服务器推荐目录：** `/opt/binance_auto_ai`
 
 ---
 
