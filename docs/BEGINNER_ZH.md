@@ -1,4 +1,6 @@
-# 初学者如何读懂 futures-llm-bot
+# 初学者如何读懂 binance_auto_ai
+
+> Python 包名仍为 `futures_llm_bot`，命令行仍为 `futures-llm-bot`。
 
 > 面向「会一点 Python、没写过交易机器人」的读者。按本文顺序读代码，能覆盖 **80% 日常逻辑**；ML/RL/复杂指标可放到第二阶段。
 

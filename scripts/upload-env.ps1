@@ -1,12 +1,12 @@
 # 从 Windows 上传 .env 到服务器（无需在 Linux 上 nano）
 # 用法：
 #   .\scripts\upload-env.ps1
-#   .\scripts\upload-env.ps1 -Server root@43.167.237.252 -RemotePath /root/futures_llm_bot
+#   .\scripts\upload-env.ps1 -Server root@43.167.237.252 -RemotePath /opt/binance_auto_ai
 #   .\scripts\upload-env.ps1 -UseServerTemplate   # 上传 deploy\server.env 而非本地 .env
 
 param(
     [string]$Server = "root@43.167.237.252",
-    [string]$RemotePath = "/root/futures_llm_bot",
+    [string]$RemotePath = "/opt/binance_auto_ai",
     [switch]$UseServerTemplate
 )
 

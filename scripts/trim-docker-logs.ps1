@@ -1,6 +1,6 @@
 # 裁剪 Docker 容器日志为近 N 小时（默认 2）
 param(
-    [string]$ContainerName = "futures-llm-bot",
+    [string]$ContainerName = "binance-auto-ai",
     [double]$Hours = 2,
     [string]$Service = "bot"
 )
@@ -21,7 +21,7 @@ if (-not $logPath -or -not (Test-Path $logPath)) {
 }
 
 $before = (Get-Item $logPath).Length
-$filtered = Join-Path $env:TEMP "futures-llm-bot-log-trim.json"
+$filtered = Join-Path $env:TEMP "binance-auto-ai-log-trim.json"
 python "$Root\scripts\trim_docker_logs.py" $logPath $filtered --hours $Hours
 
 Push-Location $Root

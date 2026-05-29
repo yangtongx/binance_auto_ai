@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# 裁剪 futures-llm-bot 容器日志，仅保留近 2 小时（默认）。
+# 裁剪 binance-auto-ai 容器日志，仅保留近 2 小时（默认）。
 # 用法：
 #   bash scripts/trim-docker-logs.sh
 #   LOG_KEEP_HOURS=3 bash scripts/trim-docker-logs.sh
 # 定时（每 30 分钟）：
-#   */30 * * * * cd /opt/futures_llm_bot && bash scripts/trim-docker-logs.sh >> /var/log/futures_llm_bot-trim.log 2>&1
+#   */30 * * * * cd /opt/binance_auto_ai && bash scripts/trim-docker-logs.sh >> /var/log/binance_auto_ai-trim.log 2>&1
 #
 # 说明：需能访问 Docker 日志文件（通常 root 或 docker 组）；会短暂 stop/start 容器以安全替换日志文件。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONTAINER="${CONTAINER_NAME:-futures-llm-bot}"
+CONTAINER="${CONTAINER_NAME:-binance-auto-ai}"
 HOURS="${LOG_KEEP_HOURS:-2}"
 SERVICE="${COMPOSE_SERVICE:-bot}"
 

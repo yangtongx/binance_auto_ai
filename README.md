@@ -1,8 +1,10 @@
-# futures-llm-bot
+# binance_auto_ai
 
 **Languages:** [English](README.md) · [中文](README.zh.md)
 
-**futures-llm-bot** is a Python application for **Binance USDT-M (USDⓈ-M) linear perpetual futures**. It runs a periodic loop: pull market data and account state, turn them into trade **signals**, apply **risk** and **session** limits, then place orders through **CCXT** in either **one-way** or **hedge** position mode.
+> Repository **binance_auto_ai** (formerly `futures_llm_bot`). Python package / CLI names unchanged: `futures_llm_bot`, `futures-llm-bot`.
+
+**binance_auto_ai** is a Python application for **Binance USDT-M (USDⓈ-M) linear perpetual futures**. It runs a periodic loop: pull market data and account state, turn them into trade **signals**, apply **risk** and **session** limits, then place orders through **CCXT** in either **one-way** or **hedge** position mode.
 
 You can drive signals in two ways:
 
@@ -110,7 +112,9 @@ docker run --rm \
 
 Volume **`/data`** persists session risk state (`STATE_FILE` defaults to `/data/.futures_llm_bot_state.json` in the image). Use **`futures-llm-real-pnl`** / **`futures-llm-backtest`** in CI or a sidecar only if you add those to the image (`pip install` already includes entry points).
 
-On **[cnb.cool](https://cnb.cool)** (or Tencent TKE): connect this repository, build from the `Dockerfile`, push to your registry, run the container with secrets injected in the console — **never** commit `.env` or keys.
+On **[cnb.cool](https://cnb.cool)**: repository **https://cnb.cool/xiaoYang-2026/binance_auto_ai** — build from this `Dockerfile`, push to your registry, inject secrets at runtime — **never** commit `.env` or keys.
+
+**Recommended server path:** `/opt/binance_auto_ai`.
 
 ---
 

@@ -3,11 +3,11 @@
 #
 # 用法：
 #   .\scripts\upload-telegram-secrets.ps1
-#   .\scripts\upload-telegram-secrets.ps1 -Server root@43.167.237.252 -RemotePath /opt/futures_llm_bot
+#   .\scripts\upload-telegram-secrets.ps1 -Server root@43.167.237.252 -RemotePath /opt/binance_auto_ai
 
 param(
     [string]$Server = "root@43.167.237.252",
-    [string]$RemotePath = "/opt/futures_llm_bot"
+    [string]$RemotePath = "/opt/binance_auto_ai"
 )
 
 $Repo = Split-Path $PSScriptRoot -Parent

@@ -5,7 +5,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>futures-llm-bot · 交易监控</title>
+<title>binance-auto-ai · 交易监控</title>
 <style>
   :root {
     --bg: #0a0e14;
@@ -152,7 +152,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
 </head>
 <body>
 <header>
-  <h1>futures-llm-bot</h1>
+  <h1>binance-auto-ai</h1>
   <span id="health-badge" class="badge ok">—</span>
   <span id="dry-badge" class="badge dry" style="display:none">DRY RUN</span>
   <span class="meta">v<span id="ver">—</span> · 运行 <span id="up">—</span>s · 刷新 <span id="ts">—</span></span>

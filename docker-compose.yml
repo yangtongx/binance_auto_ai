@@ -1,55 +1,110 @@
-services:
-  bot:
-    build: .
-    container_name: futures-llm-bot
-    restart: unless-stopped
-    init: true  # 正确转发 SIGTERM 并回收僵尸进程
-    env_file: .env
-    environment:
-      # 覆盖 .env：容器内网络绑定与状态文件路径
-      OBSERVABILITY_HOST: 0.0.0.0
-      OBSERVABILITY_PORT: "8080"
-      STATE_FILE: /app/state/state.json
-      # 通过文件注入密钥（见下方 secrets:），无需把密钥写进 .env
-      BINANCE_API_KEY_FILE: /run/secrets/binance_api_key
-      BINANCE_API_SECRET_FILE: /run/secrets/binance_api_secret
-      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
-      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
-      TELEGRAM_CHAT_ID_FILE: /run/secrets/telegram_chat_id
-    secrets:
-      - binance_api_key
-      - binance_api_secret
-      - openai_api_key
-      - telegram_bot_token
-      - telegram_chat_id
-    volumes:
-      # `:Z` 为 SELinux 强制模式重标记宿主机目录（OpenCloudOS/RHEL 等）；Ubuntu 上无影响
-      - ./state:/app/state:Z
-    logging:
-      driver: json-file
-      options:
-        # 磁盘上限；按时间保留近 2 小时请配合 cron: bash scripts/trim-docker-logs.sh
-        max-size: "5m"
-        max-file: "3"
-    ports:
-      # 面板/指标仅绑定宿主机回环；需公网访问请走反向代理
-      - "127.0.0.1:8080:8080"
-    healthcheck:
-      # 容器内监听 0.0.0.0:8080；探针用 localhost 即可
-      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8080/health', timeout=3); sys.exit(0)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
-
-secrets:
-  binance_api_key:
-    file: ./secrets/binance_api_key
-  binance_api_secret:
-    file: ./secrets/binance_api_secret
-  openai_api_key:
-    file: ./secrets/openai_api_key
-  telegram_bot_token:
-    file: ./secrets/telegram_bot_token
-  telegram_chat_id:
-    file: ./secrets/telegram_chat_id
+services:
+
+  bot:
+
+    build: .
+
+    container_name: binance-auto-ai
+
+    restart: unless-stopped
+
+    init: true  # 正确转发 SIGTERM 并回收僵尸进程
+
+    env_file: .env
+
+    environment:
+
+      # 覆盖 .env：容器内网络绑定与状态文件路径
+
+      OBSERVABILITY_HOST: 0.0.0.0
+
+      OBSERVABILITY_PORT: "8080"
+
+      STATE_FILE: /app/state/state.json
+
+      # 通过文件注入密钥（见下方 secrets:），无需把密钥写进 .env
+
+      BINANCE_API_KEY_FILE: /run/secrets/binance_api_key
+
+      BINANCE_API_SECRET_FILE: /run/secrets/binance_api_secret
+
+      OPENAI_API_KEY_FILE: /run/secrets/openai_api_key
+
+      TELEGRAM_BOT_TOKEN_FILE: /run/secrets/telegram_bot_token
+
+      TELEGRAM_CHAT_ID_FILE: /run/secrets/telegram_chat_id
+
+    secrets:
+
+      - binance_api_key
+
+      - binance_api_secret
+
+      - openai_api_key
+
+      - telegram_bot_token
+
+      - telegram_chat_id
+
+    volumes:
+
+      # `:Z` 为 SELinux 强制模式重标记宿主机目录（OpenCloudOS/RHEL 等）；Ubuntu 上无影响
+
+      - ./state:/app/state:Z
+
+    logging:
+
+      driver: json-file
+
+      options:
+
+        # 磁盘上限；按时间保留近 2 小时请配合 cron: bash scripts/trim-docker-logs.sh
+
+        max-size: "5m"
+
+        max-file: "3"
+
+    ports:
+
+      # 面板/指标仅绑定宿主机回环；需公网访问请走反向代理
+
+      - "127.0.0.1:8080:8080"
+
+    healthcheck:
+
+      # 容器内监听 0.0.0.0:8080；探针用 localhost 即可
+
+      test: ["CMD", "python", "-c", "import urllib.request,sys; urllib.request.urlopen('http://localhost:8080/health', timeout=3); sys.exit(0)"]
+
+      interval: 30s
+
+      timeout: 5s
+
+      retries: 3
+
+      start_period: 15s
+
+
+
+secrets:
+
+  binance_api_key:
+
+    file: ./secrets/binance_api_key
+
+  binance_api_secret:
+
+    file: ./secrets/binance_api_secret
+
+  openai_api_key:
+
+    file: ./secrets/openai_api_key
+
+  telegram_bot_token:
+
+    file: ./secrets/telegram_bot_token
+
+  telegram_chat_id:
+
+    file: ./secrets/telegram_chat_id
+
