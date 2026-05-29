@@ -29,8 +29,9 @@ services:
     logging:
       driver: json-file
       options:
-        max-size: "10m"
-        max-file: "5"
+        # 磁盘上限；按时间保留近 2 小时请配合 cron: bash scripts/trim-docker-logs.sh
+        max-size: "5m"
+        max-file: "3"
     ports:
       # Dashboard / metrics: only exposed on host loopback. Reverse-proxy if needed.
       - "127.0.0.1:8080:8080"
