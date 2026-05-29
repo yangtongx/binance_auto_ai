@@ -48,14 +48,14 @@ def test_equity_range_filters_and_downsamples() -> None:
 
     last_hour = st.equity_range("1h", max_points=200)
     assert last_hour["range"] == "1h"
-    # 1h window should contain ~60 of the 120 points
+    # 1h 窗口应包含 120 点中约 60 个
     assert 55 <= last_hour["raw_count"] <= 61
     assert len(last_hour["points"]) <= 200
 
     all_range = st.equity_range("all", max_points=50)
     assert all_range["raw_count"] == 120
     assert len(all_range["points"]) <= 50
-    # Last point preserved after downsampling
+    # 降采样后仍保留最后一点
     assert all_range["points"][-1]["v"] == pts[-1][1]
 
 
@@ -64,7 +64,7 @@ def test_equity_persist_and_load(tmp_path: Path) -> None:
     st = DashboardState(persist_path=path)
     now = datetime.now(timezone.utc)
     st._equity_history.append({"t": now.isoformat(), "v": 42.5})
-    # Force persist by bypassing throttle
+    # 绕过节流强制持久化
     st._last_persist_monotonic = 0.0
     st._persist_throttled()
     assert path.is_file()

@@ -452,13 +452,13 @@ def fibonacci_retracement_levels(swing_high: float, swing_low: float, *, uptrend
     """Return 0.382 / 0.5 / 0.618 retracement prices from swing leg."""
     diff = swing_high - swing_low
     if uptrend_swing:
-        # Pullback down from high
+        # 自高点回落
         return {
             "0.382": swing_high - 0.382 * diff,
             "0.5": swing_high - 0.5 * diff,
             "0.618": swing_high - 0.618 * diff,
         }
-    # Bounce up from low in downtrend
+    # 下跌趋势中自低点反弹
     return {
         "0.382": swing_low + 0.382 * diff,
         "0.5": swing_low + 0.5 * diff,
@@ -519,7 +519,7 @@ def atr_wilder_series(high: np.ndarray, low: np.ndarray, close: np.ndarray, peri
     if n < period + 1 or period < 1:
         return out
     tr = true_range(high, low, close)
-    # First ATR: simple mean of first `period` TR values starting at index 1
+    # 首个 ATR：从索引 1 起对前 `period` 个 TR 取简单均值
     seed = float(np.nanmean(tr[1 : period + 1]))
     out[period] = seed
     a = seed

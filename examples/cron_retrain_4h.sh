@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Example: retrain TorchScript every 4 hours (cron / systemd).
+# 示例：每 4 小时重训 TorchScript（cron / systemd）
 #
-# Crontab (UTC), e.g. at minute 5 past 0,4,8,12,16,20:
+# Crontab（UTC），例如在 0、4、8、12、16、20 点的第 5 分钟：
 #   5 */4 * * * /path/to/futures_llm_bot/examples/cron_retrain_4h.sh >> /var/log/ml_retrain.log 2>&1
 #
-# Adjust paths and env; the bot reads ML_MODEL_PATH — write via temp then mv for atomic replace.
+# 按需调整路径与环境；机器人读取 ML_MODEL_PATH — 先写临时文件再 mv 原子替换
 
 set -euo pipefail
 
@@ -21,8 +21,8 @@ export PAGE_SIZE="${PAGE_SIZE:-1500}"
 export ARCH="${ARCH:-lstm}"
 export WINDOW="${WINDOW:-48}"
 export EPOCHS="${EPOCHS:-25}"
-export # The bot checks ML_MODEL_PATH mtime every ML_HOT_RELOAD_INTERVAL_SEC and reloads when it
-# changes (atomic cp/mv recommended). Main futures bot process usually does not need restart.
+# 机器人按 ML_HOT_RELOAD_INTERVAL_SEC 检查 ML_MODEL_PATH 的 mtime，变更时热加载
+# （推荐原子 cp/mv）；主交易进程通常无需重启
 MODEL_OUT="${MODEL_OUT:-$ROOT/artifacts/ml_latest.pt}"
 export TMP_OUT="${TMP_OUT:-${MODEL_OUT}.tmp.$$}"
 

@@ -555,12 +555,12 @@ def main() -> None:
     if not settings.dry_run and (not settings.binance_api_key or not settings.binance_api_secret):
         raise SystemExit("BINANCE_API_KEY/SECRET required when DRY_RUN=false")
 
-    # Graceful shutdown on container stop (SIGTERM) and Ctrl-C (SIGINT).
+    # 容器停止（SIGTERM）与 Ctrl-C（SIGINT）时优雅退出
     signal.signal(signal.SIGINT, _request_stop)
     try:
         signal.signal(signal.SIGTERM, _request_stop)
     except (AttributeError, ValueError):
-        pass  # SIGTERM unavailable on some platforms / non-main threads
+        pass  # 部分平台/非主线程无法注册 SIGTERM
 
     try:
         run_loop(settings, once=args.once)

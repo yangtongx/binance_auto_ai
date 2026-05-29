@@ -26,7 +26,7 @@ def min_order_amount(ex: ccxt.binanceusdm, symbol: str) -> float:
     prec = market.get("precision") or {}
     amt_prec = prec.get("amount")
     if isinstance(amt_prec, (int, float)) and float(amt_prec) > 0:
-        # Binance USDM often exposes step size here (e.g. 0.001 BTC).
+        # 币安 USDM 常在此暴露步长（如 0.001 BTC）
         if isinstance(amt_prec, int) and amt_prec >= 0:
             return float(10 ** (-amt_prec))
         return float(amt_prec)

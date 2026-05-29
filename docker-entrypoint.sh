@@ -1,5 +1,5 @@
 #!/bin/sh
-# Load Docker Compose file secrets (root-only 0600) into env, then drop to user bot.
+# 从 Docker Compose 密钥文件（root 只读 0600）加载环境变量，再降权为 bot 用户
 set -e
 
 _load_one() {

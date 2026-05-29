@@ -1,8 +1,8 @@
-# Upload .env from Windows to server (no nano on Linux).
-# Usage:
+# 从 Windows 上传 .env 到服务器（无需在 Linux 上 nano）
+# 用法：
 #   .\scripts\upload-env.ps1
 #   .\scripts\upload-env.ps1 -Server root@43.167.237.252 -RemotePath /root/futures_llm_bot
-#   .\scripts\upload-env.ps1 -UseServerTemplate   # upload deploy\server.env instead of local .env
+#   .\scripts\upload-env.ps1 -UseServerTemplate   # 上传 deploy\server.env 而非本地 .env
 
 param(
     [string]$Server = "root@43.167.237.252",

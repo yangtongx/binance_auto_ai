@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Overwrite repo .env from deploy/server.env (no editor). Safe to re-run.
+# 用 deploy/server.env 覆盖仓库 .env（无需编辑器），可重复执行
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/deploy/server.env"

@@ -15,7 +15,7 @@ from futures_llm_bot.signal_probe import evaluate_symbol_signal
 
 logger = logging.getLogger(__name__)
 
-# Back-compat for tests importing ``_DASHBOARD_HTML``.
+# 兼容测试导入 ``_DASHBOARD_HTML``
 _DASHBOARD_HTML = DASHBOARD_HTML
 
 
@@ -34,7 +34,7 @@ def start_observability_background(host: str, port: int) -> threading.Thread:
                 self.end_headers()
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
-                # Browser/curl closed early; ignore (common for /health polls).
+                # 浏览器/curl 提前断开；忽略（/health 轮询常见）
                 pass
 
         def do_GET(self) -> None:  # noqa: N802

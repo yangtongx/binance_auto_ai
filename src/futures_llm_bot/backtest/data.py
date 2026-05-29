@@ -13,7 +13,7 @@ from futures_llm_bot.exchange_env import (
     load_binance_usdm_markets,
 )
 
-OHLCVRow = list[float]  # [ts_ms, o, h, l, c, v]
+OHLCVRow = list[float]  # [时间戳ms, 开, 高, 低, 收, 量]
 
 
 def _new_binance_usdm_exchange(*, testnet: bool) -> ccxt.binanceusdm:

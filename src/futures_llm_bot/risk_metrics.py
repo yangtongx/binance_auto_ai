@@ -97,7 +97,7 @@ def var_tail_block_reason_from_ohlcv(
     if r.size < 5:
         return None
     var_r = historical_var_return(r, alpha=alpha)
-    if var_r != var_r:  # nan
+    if var_r != var_r:  # NaN
         return None
     if var_r <= tail_limit:
         return (

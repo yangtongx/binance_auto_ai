@@ -83,7 +83,7 @@ def load_sb3_strategy(
 ) -> RlSb3Strategy:
     try:
         from stable_baselines3.common.base_class import BaseAlgorithm
-    except ImportError as e:  # pragma: no cover - optional dependency
+    except ImportError as e:  # pragma: no cover — 可选依赖
         raise ImportError(
             "RL strategies require optional deps: pip install -e \".[rl]\" "
             "(stable-baselines3 + gymnasium).",

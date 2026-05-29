@@ -57,5 +57,5 @@ def test_available_margin_less_than_wallet() -> None:
         max_notional_usdt=10_000.0,
         leverage=10.0,
     )
-    # 44 total but only 30 free (rest in positions)
+    # 44 USDT 总额但仅 30 可用（其余在持仓中）
     assert directional_notional_or_skip(s, _sig(), available_margin_usdt=30.0) == 300.0

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 __all__ = ["FuturesPerpBarEnv"]
 
 
-def __getattr__(name: str):  # PEP 562 lazy imports — avoids importing gymnasium on ``import futures_llm_bot.rl``
+def __getattr__(name: str):  # PEP 562 惰性导入 — 避免 ``import futures_llm_bot.rl`` 时加载 gymnasium
     if name == "FuturesPerpBarEnv":
         from futures_llm_bot.rl.futures_perp_env import FuturesPerpBarEnv as _E
 

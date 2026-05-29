@@ -30,7 +30,7 @@ def test_parse_composite_members():
 
 
 def test_composite_majority_long():
-    # Fast SMA cross up vs RSI mid — force two children that disagree then agree
+    # 快线上穿慢线 vs RSI 中性 — 构造先分歧后一致的两个子策略
     o = _synth_ohlcv(80, drift=0.001)
     a = SMACrossStrategy(fast=5, slow=15, size_pct=100.0, confidence=0.9)
     b = RsiThresholdStrategy(period=7, oversold=5.0, overbought=99.0, confidence=0.9)
@@ -73,7 +73,7 @@ def test_rsi_adaptive_runs():
 
 
 def test_var_tail_gate():
-    closes = [100.0 * (0.995**i) for i in range(80)]  # steady mild downtrend
+    closes = [100.0 * (0.995**i) for i in range(80)]  # 温和持续下跌
     ohlcv = [[0, c, c, c, c, 1.0] for c in closes]
     r = log_returns_from_closes(closes)
     v = historical_var_return(r, alpha=0.05)

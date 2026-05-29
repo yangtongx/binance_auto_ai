@@ -23,8 +23,8 @@ _ACTION_CN = {
 
 SEPARATOR = "━━━━━━━━━━━━━━━━━━━━"
 
-# Keys: symbol, short_symbol, source, action, action_cn, size_pct, confidence, reason,
-#       timeframe, dry_run, mode_label, equity_usdt, equity_line, emoji, separator
+# 模板占位符：symbol, short_symbol, source, action, action_cn, size_pct, confidence, reason,
+#             timeframe, dry_run, mode_label, equity_usdt, equity_line, emoji, separator
 TEMPLATES: dict[str, str] = {
     "default": (
         "{emoji} {action_cn} · {short_symbol}\n"

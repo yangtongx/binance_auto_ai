@@ -6,7 +6,7 @@ from futures_llm_bot.strategy_factory import build_strategy_for_backtest, min_ba
 
 
 def test_rsi_series_first_value_at_period() -> None:
-    # Monotone up → high RSI at end
+    # 单调上涨 → 末端 RSI 偏高
     c = [100.0 + i * 0.1 for i in range(30)]
     s = _rsi_series(c, 14)
     assert s[13] is None

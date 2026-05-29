@@ -10,10 +10,10 @@ from urllib.parse import urlparse
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# src/futures_llm_bot/config.py -> repository root (parent of "src")
+# src/futures_llm_bot/config.py -> 仓库根目录（"src" 的上一级）
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _ENV_FILE = _REPO_ROOT / ".env"
-# Writable session state in the official image (see Dockerfile / docker-compose).
+# 官方镜像中可写的会话状态路径（见 Dockerfile / docker-compose）
 _DOCKER_STATE_FILE = Path("/app/state/state.json")
 
 
@@ -28,7 +28,7 @@ def _docker_writable_state_file() -> Path | None:
 
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$")
 
-# Docker secrets convention: if XXX_FILE is set, read the secret from that file.
+# Docker secrets 约定：若设置了 XXX_FILE，则从该文件读取密钥
 _DOCKER_SECRET_MAP = {
     "BINANCE_API_KEY": "BINANCE_API_KEY_FILE",
     "BINANCE_API_SECRET": "BINANCE_API_SECRET_FILE",
@@ -39,10 +39,10 @@ _DOCKER_SECRET_MAP = {
 
 
 def _load_docker_secrets() -> None:
-    """Load secrets from ``*_FILE`` paths when the direct env var is unset or empty.
+    """当直接环境变量未设置或为空时，从 ``*_FILE`` 路径加载密钥。
 
-    ``env_file: .env`` in Docker Compose often sets ``BINANCE_API_KEY=`` (empty), which
-    would otherwise block reading ``/run/secrets/...``.
+    Docker Compose 的 ``env_file: .env`` 常把 ``BINANCE_API_KEY=`` 留空，
+    否则会阻止从 ``/run/secrets/...`` 读取。
     """
     for env_key, file_key in _DOCKER_SECRET_MAP.items():
         if os.environ.get(env_key, "").strip():
@@ -55,7 +55,7 @@ def _load_docker_secrets() -> None:
         try:
             os.environ[env_key] = path.read_text(encoding="utf-8").strip()
         except PermissionError:
-            # Compose mounts secrets as root:root 0600; non-root must use docker-entrypoint.sh.
+            # Compose 将 secrets 挂载为 root:root 0600；非 root 须通过 docker-entrypoint.sh 读取
             continue
 
 
@@ -76,7 +76,7 @@ class Settings(BaseSettings):
     binance_api_key: str = Field(default="", validation_alias="BINANCE_API_KEY")
     binance_api_secret: str = Field(default="", validation_alias="BINANCE_API_SECRET")
     binance_testnet: bool = Field(default=False, validation_alias="BINANCE_TESTNET")
-    # Local Clash/SSR: http://127.0.0.1:7890 or socks5://127.0.0.1:1080 (socks needs PySocks)
+    # 本地 Clash/SSR：http://127.0.0.1:7890 或 socks5://127.0.0.1:1080（socks 需 PySocks）
     binance_https_proxy: str = Field(default="", validation_alias="BINANCE_HTTPS_PROXY")
 
     # --- LLM（SIGNAL_SOURCE=llm 时必填）---
@@ -158,7 +158,7 @@ class Settings(BaseSettings):
     telegram_template: str = Field(default="default", validation_alias="TELEGRAM_TEMPLATE")
     telegram_message_template: str = Field(default="", validation_alias="TELEGRAM_MESSAGE_TEMPLATE")
     telegram_parse_mode: str = Field(default="", validation_alias="TELEGRAM_PARSE_MODE")
-    # all | directional (long/short/flat, skip hold) | off
+    # all | directional（多/空/平，跳过观望）| off
     telegram_notify_signals: str = Field(default="directional", validation_alias="TELEGRAM_NOTIFY_SIGNALS")
     telegram_notify_startup: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_STARTUP")
     telegram_notify_pool_refresh: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_POOL_REFRESH")
@@ -179,17 +179,17 @@ class Settings(BaseSettings):
         validation_alias="SYMBOL_CANDIDATES",
     )
     symbol_candidates_count: int = Field(default=5, ge=2, le=12, validation_alias="SYMBOL_CANDIDATES_COUNT")
-    # Comma-separated composite rank: abs_change,open_interest,liquidity (liquidity=24h quote volume)
+    # 逗号分隔的综合排序：abs_change,open_interest,liquidity（liquidity=24h 成交额）
     symbol_candidates_rank_by: str = Field(
         default="abs_change,open_interest,liquidity",
         validation_alias="SYMBOL_CANDIDATES_RANK_BY",
     )
-    # Weights matching RANK_BY order. Empty = equal split.
+    # 与 RANK_BY 顺序对应的权重；空=均分
     symbol_candidates_rank_weights: str = Field(
         default="0.4,0.3,0.3",
         validation_alias="SYMBOL_CANDIDATES_RANK_WEIGHTS",
     )
-    # Liquidity floor only (not ranking). Set 0 to disable when not ranking by volume.
+    # 仅流动性下限（不参与排序）；0=未按成交量排序时可关闭
     symbol_candidates_min_quote_volume_usdt: float = Field(
         default=1_000_000.0,
         ge=0.0,
@@ -205,7 +205,7 @@ class Settings(BaseSettings):
         le=168.0,
         validation_alias="SYMBOL_CANDIDATES_REFRESH_HOURS",
     )
-    # If > 0, overrides ``SYMBOL_CANDIDATES_REFRESH_HOURS``. Use for sub-hour refresh.
+    # >0 时覆盖 ``SYMBOL_CANDIDATES_REFRESH_HOURS``，用于亚小时刷新
     symbol_candidates_refresh_minutes: float = Field(
         default=0.0,
         ge=0.0,
@@ -216,8 +216,7 @@ class Settings(BaseSettings):
         default=True,
         validation_alias="SYMBOL_CANDIDATES_FILTER_MIN_NOTIONAL",
     )
-    # Drop symbols whose absolute 24h % change exceeds this value (0 = off).
-    # Prevents the auto pool from picking pumps/dumps like 100%-200% movers.
+    # 剔除 |24h 涨跌幅| 超过此值的币（0=关闭），避免自动池追暴涨暴跌
     symbol_candidates_max_abs_change_pct: float = Field(
         default=0.0,
         ge=0.0,
@@ -579,7 +578,7 @@ class Settings(BaseSettings):
         p = Path(v)  # type: ignore[arg-type]
         if p.is_absolute():
             return p
-        # .env often keeps a repo-relative path; /app is not writable in the container image.
+        # .env 常为仓库相对路径；容器内 /app 不可写
         if p.name == ".futures_llm_bot_state.json":
             docker_path = _docker_writable_state_file()
             if docker_path is not None:

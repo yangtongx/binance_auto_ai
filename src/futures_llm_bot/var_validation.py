@@ -55,7 +55,7 @@ def kupiec_uc_lr(n: int, x: int, alpha: float) -> float:
     p = alpha
     p_hat = x / n
     if p_hat <= 0.0:
-        # boundary: use epsilon for stability
+        # 边界：用 epsilon 保证数值稳定
         p_hat = 1e-12
     if p_hat >= 1.0:
         p_hat = 1.0 - 1e-12

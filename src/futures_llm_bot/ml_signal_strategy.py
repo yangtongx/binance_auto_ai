@@ -55,7 +55,7 @@ class TorchScriptMLStrategy:
     ) -> None:
         try:
             import torch
-        except ImportError as e:  # pragma: no cover - optional dep
+        except ImportError as e:  # pragma: no cover — 可选依赖
             raise RuntimeError('Install the ml-torch extra: pip install -e ".[ml-torch]"') from e
         key = arch.strip().lower()
         if key not in ("mlp", "lstm", "transformer"):

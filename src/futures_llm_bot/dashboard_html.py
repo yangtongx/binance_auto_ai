@@ -379,8 +379,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       const sess = d.session || {};
       el("trades-today").textContent = (sess.trade_count ?? "—") + (sess.max_trades_per_day > 0 ? " / " + sess.max_trades_per_day : "");
       el("day-dd").textContent = fmt(sess.day_drawdown_usdt, 2);
-      // Only redraw equity from /health when on the default (1h) range; longer
-      // ranges are served by /api/equity and re-fetched on selection / timer.
+      // 仅在默认 1h 范围时用 /health 重绘权益；更长范围由 /api/equity 在切换/定时器时拉取
       if (currentRange === "1h") {
         drawEquity(d.equity_history || []);
         el("range-meta").textContent = "样本 " + (d.equity_history || []).length +
@@ -478,7 +477,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
       b.classList.toggle("active", b.dataset.range === r);
     });
     if (r === "1h") {
-      // 1h uses the embedded /health payload; let next poll() draw it.
+      // 1h 使用内嵌的 /health 载荷；等下一次 poll() 绘制
       el("range-meta").textContent = "范围 1h · 等待刷新…";
     } else {
       fetchRange(r);
@@ -554,7 +553,7 @@ DASHBOARD_HTML = r"""<!DOCTYPE html>
   });
   poll();
   setInterval(poll, 3000);
-  // Re-fetch longer ranges every 30 s so the chart stays current.
+  // 每 30 秒重拉较长范围，保持图表更新
   setInterval(() => {
     if (currentRange !== "1h" && Date.now() - lastRangeFetchAt > 25000) {
       fetchRange(currentRange);

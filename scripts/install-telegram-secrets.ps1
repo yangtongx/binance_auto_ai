@@ -1,6 +1,6 @@
-# Write secrets/telegram_bot_token and secrets/telegram_chat_id from deploy/telegram.credentials
-# Usage:
-#   1) Edit deploy\telegram.credentials (line1=token, line2=chat_id) — only once
+# 从 deploy/telegram.credentials 写入 secrets/telegram_bot_token 与 secrets/telegram_chat_id
+# 用法：
+#   1) 编辑 deploy\telegram.credentials（第1行=token，第2行=chat_id）— 仅需一次
 #   2) .\scripts\install-telegram-secrets.ps1
 #   3) docker compose up -d --build
 

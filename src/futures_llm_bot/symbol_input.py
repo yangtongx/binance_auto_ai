@@ -38,7 +38,7 @@ def resolve_usdm_symbol(ex: ccxt.binanceusdm, raw: str) -> str:
         if m and m.get("active", True) and m.get("linear"):
             return sym
 
-    # Fallback: match CCXT market id (e.g. DOGEUSDT) case-insensitively.
+    # 回退：按 CCXT 市场 id（如 DOGEUSDT）不区分大小写匹配
     want = candidates[-1].split("/")[0].split(":")[0].upper()
     for sym, m in markets.items():
         if not m.get("active", True) or not m.get("linear"):

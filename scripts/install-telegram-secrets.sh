@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Write secrets/telegram_bot_token and secrets/telegram_chat_id on the server (no .env edit).
+# 在服务器写入 secrets/telegram_bot_token 与 secrets/telegram_chat_id（无需改 .env）
 #
-# Usage (pick one):
+# 用法（任选其一）：
 #   bash scripts/install-telegram-secrets.sh '8860025206:YOUR_TOKEN' 8539559221
 #   TELEGRAM_BOT_TOKEN='...' TELEGRAM_CHAT_ID=8539559221 bash scripts/install-telegram-secrets.sh
-#   bash scripts/install-telegram-secrets.sh   # reads deploy/telegram.credentials (2 lines)
-#   bash scripts/install-telegram-secrets.sh -i   # interactive prompt
+#   bash scripts/install-telegram-secrets.sh   # 读取 deploy/telegram.credentials（2 行）
+#   bash scripts/install-telegram-secrets.sh -i   # 交互式输入
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

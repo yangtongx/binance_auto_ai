@@ -20,12 +20,12 @@ logger = logging.getLogger(__name__)
 
 _MAX_DECISIONS = 40
 _MAX_EVENTS = 80
-# Keep up to 30 days of minute-level equity points (~43k entries, JSON ~2 MB).
+# 最多保留 30 天分钟级权益点（约 4.3 万条，JSON 约 2 MB）
 _MAX_EQUITY_POINTS = 30 * 24 * 60
-_HEALTH_EQUITY_POINTS = 240  # default chart payload (~4h at 1m)
+_HEALTH_EQUITY_POINTS = 240  # 默认图表载荷（1m 约 4 小时）
 _PERSIST_INTERVAL_SEC = 60.0
 
-# Mapping from range key to lookback in seconds (None = all).
+# 时间范围键 -> 回溯秒数（None=全部）
 RANGE_SECONDS: dict[str, float | None] = {
     "5m": 300.0,
     "15m": 900.0,
@@ -58,7 +58,7 @@ def _downsample(points: list[dict[str, Any]], max_points: int) -> list[dict[str,
     while int(i) < len(points) and len(out) < max_points:
         out.append(points[int(i)])
         i += step
-    # Ensure the most recent point is preserved (chart end snaps to latest).
+    # 保证最新一点保留（图表末端对齐最新时间）
     if out and out[-1] is not points[-1]:
         out[-1] = points[-1]
     return out
@@ -214,8 +214,7 @@ class DashboardState:
                     self._account["day_pnl_pct"] = round(
                         (float(equity) - float(day_start)) / float(day_start) * 100.0, 3
                     )
-                # Always record one point per refresh so the chart has continuous
-                # samples; we'll downsample for longer ranges on read.
+                # 每次刷新记一点，图表连续；读取较长范围时再降采样
                 self._equity_history.append(
                     {"t": self._last_tick_at, "v": round(float(equity), 4)}
                 )

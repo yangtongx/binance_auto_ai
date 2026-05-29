@@ -1,4 +1,4 @@
-# ---- build stage ----
+# ---- 构建阶段 ----
 FROM python:3.12-slim AS builder
 
 WORKDIR /build
@@ -8,7 +8,7 @@ COPY src/ src/
 
 RUN pip install --no-cache-dir --prefix=/install .
 
-# ---- runtime stage ----
+# ---- 运行阶段 ----
 FROM python:3.12-slim
 
 RUN apt-get update && \
@@ -24,8 +24,8 @@ RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 WORKDIR /app
 
-# Entrypoint runs as root to read /run/secrets (mode 0600 root:root), then gosu bot.
-# Sensible container defaults — override via env / compose / k8s.
+# 入口以 root 读取 /run/secrets（0600 root:root），再通过 gosu 降权为 bot
+# 以下 ENV 为容器合理默认，可在 compose / k8s 中覆盖
 ENV OBSERVABILITY_HOST=0.0.0.0 \
     OBSERVABILITY_PORT=8080 \
     STATE_FILE=/app/state/state.json

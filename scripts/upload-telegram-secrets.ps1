@@ -1,7 +1,7 @@
-# Upload Telegram secret files to server (no editing .env).
-# Prerequisite: .\scripts\install-telegram-secrets.ps1
+# 上传 Telegram 密钥文件到服务器（无需改 .env）
+# 前置：.\scripts\install-telegram-secrets.ps1
 #
-# Usage:
+# 用法：
 #   .\scripts\upload-telegram-secrets.ps1
 #   .\scripts\upload-telegram-secrets.ps1 -Server root@43.167.237.252 -RemotePath /opt/futures_llm_bot
 

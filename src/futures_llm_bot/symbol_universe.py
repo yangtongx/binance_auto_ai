@@ -22,7 +22,7 @@ _RANK_METRICS = frozenset(
     {"abs_change", "change", "open_interest", "quote_volume", "liquidity", "random"}
 )
 _METRIC_ALIASES = {"volume": "quote_volume", "liquidity": "quote_volume"}
-# Used when auto scan returns <2 symbols (API/ticker gaps, strict filters).
+# 自动扫描结果少于 2 个交易对时的回退列表（API/行情缺口、过滤过严）
 _FALLBACK_CANDIDATES = (
     "DOGE/USDT:USDT",
     "SOL/USDT:USDT",

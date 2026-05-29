@@ -18,7 +18,7 @@ def test_kupiec_under_null_matches_alpha():
     rep = var_backtest_report(r, lookback=200, alpha=0.05)
     assert rep["n_forecasts"] > 0
     rate = rep["violation_rate"]
-    assert abs(rate - 0.05) < 0.03  # loose — finite sample
+    assert abs(rate - 0.05) < 0.03  # 宽松 — 有限样本
     lr = rep["kupiec_lr"]
     assert lr == lr
     assert lr < 10.0

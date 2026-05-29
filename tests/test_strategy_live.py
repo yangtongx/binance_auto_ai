@@ -31,7 +31,7 @@ def test_build_live_strategy_on_bar_no_llm() -> None:
         strategy_confidence=0.9,
     )
     strat = build_live_strategy(settings)
-    # 5 bars: warmup needs slow+1 = 4 closes minimum for cross logic with prev bar
+    # 5 根 K：预热需 slow+1=4 根收盘，前一根用于金叉逻辑
     ohlcv = [
         [1, 10, 10, 10, 10, 1],
         [2, 10, 10, 10, 11, 1],

@@ -23,7 +23,7 @@ class PriceLevel:
 
     label: str
     price: float
-    op: str = ">="  # >= long trigger, <= short trigger, ~ approximate
+    op: str = ">="  # >= 做多触发，<= 做空触发，~ 近似
 
     def line(self) -> str:
         op_map = {">=": "≥", "<=": "≤", "~": "≈", ">": ">", "<": "<"}
@@ -115,7 +115,7 @@ def _crossover_watch_level(fast: float, slow: float, price: float, *, bullish: b
     """Approximate price needed on next close for fast/slow SMA to touch (heuristic)."""
     mid = (fast + slow) / 2.0
     if bullish:
-        # Fast below slow: need price lift toward the gap between price and slow line.
+        # 快线低于慢线：价格需向现价与慢线之间的缺口回升
         est = max(mid, slow, price * 1.002)
         return PriceLevel(f"金叉参考价(≈快线上穿慢线)", est, "~")
     est = min(mid, slow, price * 0.998)

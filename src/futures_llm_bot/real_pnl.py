@@ -11,7 +11,7 @@ import ccxt
 
 logger = logging.getLogger(__name__)
 
-# Core flow items that together explain wallet changes from trading (excludes transfers / bonuses).
+# 核心流水类型，合起来解释交易带来的钱包变动（不含划转/赠金等）
 _TRADING_INCOME_TYPES = frozenset(
     {
         "REALIZED_PNL",

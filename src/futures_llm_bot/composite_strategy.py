@@ -125,7 +125,7 @@ class CompositeStrategy:
                 reason=f"composite:weighted:neutral={score:.2f}",
             )
 
-        # majority
+        # 多数表决
         long_v = sum(1 for s in signals if s.action == Action.LONG)
         short_v = sum(1 for s in signals if s.action == Action.SHORT)
         flat_v = sum(1 for s in signals if s.action == Action.FLAT)

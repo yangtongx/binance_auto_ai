@@ -13,14 +13,14 @@ They are **not** oracle trade labels — replace with your own objective if you 
 
 Usage (from repo root; ``pip install -e ".[ml-torch]"`` first)::
 
-    # Synthetic (pipeline test)
+    # 合成数据（流水线自检）
     python examples/train_ml_torch.py --arch lstm --window 32 --epochs 40 --out artifacts/ml_lstm.pt
 
-    # Real market history (paginated public klines — no API key)
+    # 真实行情（分页公开 K 线 — 无需 API 密钥）
     python examples/train_ml_torch.py --fetch --no-testnet --symbol BTC/USDT:USDT --timeframe 4h --limit 20000 \\
         --page-size 1500 --arch lstm --window 48 --epochs 40 --out artifacts/ml_latest.pt
 
-    # CSV from ``futures-llm-backtest``-compatible export
+    # 与 ``futures-llm-backtest`` 兼容导出的 CSV
     python examples/train_ml_torch.py --csv data/btc_1h.csv --arch mlp --window 32 --out artifacts/ml_csv.pt
 
 Live: ``STRATEGY_NAME=ml``, ``ML_BACKEND=torch``, ``ML_TORCH_ARCH`` matching ``--arch``,

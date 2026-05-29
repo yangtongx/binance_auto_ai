@@ -1,5 +1,5 @@
-# Send a test message via Telegram Bot API (verify token + chat_id).
-# Usage:
+# 通过 Telegram Bot API 发送测试消息（验证 token + chat_id）
+# 用法：
 #   $env:TELEGRAM_BOT_TOKEN = "123:ABC..."
 #   $env:TELEGRAM_CHAT_ID = "123456789"
 #   .\scripts\telegram-test.ps1

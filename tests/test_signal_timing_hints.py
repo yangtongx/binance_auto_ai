@@ -14,7 +14,7 @@ def _ohlcv_from_closes(closes: list[float]) -> list[list[float]]:
 
 
 def test_sma_cross_hold_gives_long_and_short_hints() -> None:
-    # Down-then-flat series: fast SMA below slow → hold, with actionable hints.
+    # 先跌后横序列：快线在慢线下方 → 观望，并给出可操作建议
     n = 60
     closes = [100.0 - i * 0.3 for i in range(n - 10)] + [70.0] * 10
     ohlcv = _ohlcv_from_closes(closes)

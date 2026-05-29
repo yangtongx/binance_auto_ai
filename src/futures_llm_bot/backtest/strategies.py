@@ -366,7 +366,7 @@ class FibonacciRetracementStrategy:
         c_prev = float(ohlcv[-2][4])
         c_now = float(ohlcv[-1][4])
         if uptrend_swing:
-            # Expect continuation up: long on reclaim above Fib from below
+            # 预期延续上行：自下方收复斐波那契位时做多
             if c_prev <= lvl < c_now:
                 return LLMSignal(
                     action=Action.LONG,
@@ -546,7 +546,7 @@ class AtrBreakoutStrategy:
         return LLMSignal(action=Action.HOLD, size_pct=0.0, confidence=self._confidence, reason="atr inside")
 
 
-# --- test / back-compat exports -------------------------------------------------
+# --- 测试 / 向后兼容导出 ---
 def _closes(ohlcv: list[list[float]]) -> list[float]:
     return _closes_list(ohlcv)
 
