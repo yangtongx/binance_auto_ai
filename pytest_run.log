@@ -1,0 +1,23 @@
+.........................................s.........................FF.F. [ 75%]
+.......................                                                  [100%]
+================================== FAILURES ===================================
+________________ test_settings_strategy_requires_fast_lt_slow _________________
+tests\test_strategy_live.py:11: in test_settings_strategy_requires_fast_lt_slow
+    with pytest.raises(ValidationError, match="STRATEGY_FAST"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'pydantic_core._pydantic_core.ValidationError'>
+_____________________ test_unknown_strategy_name_rejected _____________________
+tests\test_strategy_live.py:20: in test_unknown_strategy_name_rejected
+    with pytest.raises(ValidationError, match="STRATEGY_NAME"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'pydantic_core._pydantic_core.ValidationError'>
+_________________ test_ml_tensorflow_disallows_sequence_arch __________________
+tests\test_strategy_live.py:48: in test_ml_tensorflow_disallows_sequence_arch
+    with pytest.raises(ValidationError, match="ML_TORCH_ARCH"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'pydantic_core._pydantic_core.ValidationError'>
+=========================== short test summary info ===========================
+FAILED tests/test_strategy_live.py::test_settings_strategy_requires_fast_lt_slow
+FAILED tests/test_strategy_live.py::test_unknown_strategy_name_rejected - Fai...
+FAILED tests/test_strategy_live.py::test_ml_tensorflow_disallows_sequence_arch
+3 failed, 91 passed, 2 skipped in 3.96s

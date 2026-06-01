@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from futures_llm_bot.config import Settings
+from binance_auto_ai.config import Settings
 
 
 def test_signal_pick_requires_candidates(monkeypatch: pytest.MonkeyPatch) -> None:

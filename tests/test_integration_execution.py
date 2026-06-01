@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.execution import execute_signal
-from futures_llm_bot.schemas import Action, LLMSignal
+from binance_auto_ai.config import Settings
+from binance_auto_ai.execution import execute_signal
+from binance_auto_ai.schemas import Action, LLMSignal
 
 
 class FakeUSDMM:

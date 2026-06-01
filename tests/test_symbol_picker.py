@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from futures_llm_bot.schemas import Action, LLMSignal
-from futures_llm_bot.symbol_picker import (
+from binance_auto_ai.schemas import Action, LLMSignal
+from binance_auto_ai.symbol_picker import (
     pick_best_directional,
     plan_signal_pick_trades,
 )

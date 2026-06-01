@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from futures_llm_bot.observability import _DASHBOARD_HTML
+from binance_auto_ai.observability import _DASHBOARD_HTML
 
 
 def test_dashboard_page_embeds_health_poll() -> None:

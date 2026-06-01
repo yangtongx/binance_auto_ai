@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from futures_llm_bot.exchange_env import (
+from binance_auto_ai.exchange_env import (
     apply_binance_usdm_environment,
     binance_usdm_ws_base,
     configure_binance_usdm_exchange,

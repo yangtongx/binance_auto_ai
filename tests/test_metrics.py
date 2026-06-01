@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from futures_llm_bot import metrics
+from binance_auto_ai import metrics
 
 
 def test_metrics_snapshot_has_status() -> None:
@@ -11,4 +11,4 @@ def test_metrics_snapshot_has_status() -> None:
     assert "ticks" in snap
     assert "llm" in snap
     pt = metrics.prometheus_text()
-    assert "futures_llm_bot_ticks_attempted" in pt
+    assert "binance_auto_ai_ticks_attempted" in pt

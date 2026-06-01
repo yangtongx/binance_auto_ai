@@ -77,10 +77,10 @@ chmod 600 "$SECRETS/telegram_bot_token" "$SECRETS/telegram_chat_id" 2>/dev/null 
 
 echo "OK: wrote secrets/telegram_bot_token and secrets/telegram_chat_id"
 echo "Test: docker compose run --rm bot python -c \"
-from futures_llm_bot.config import Settings
-from futures_llm_bot.telegram_notify import send_telegram_message
+from binance_auto_ai.config import Settings
+from binance_auto_ai.telegram_notify import send_telegram_message
 s = Settings()
-send_telegram_message(s, 'futures-llm-bot telegram OK (server)')
+send_telegram_message(s, 'binance-auto-ai telegram OK (server)')
 print('configured', bool(s.telegram_bot_token), bool(s.telegram_chat_id))
 \""
 echo "Then: docker compose up -d --build"

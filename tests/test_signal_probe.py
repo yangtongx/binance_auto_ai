@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from futures_llm_bot.schemas import Action, LLMSignal
-from futures_llm_bot.signal_probe import advice_from_action, evaluate_symbol_signal
+from binance_auto_ai.schemas import Action, LLMSignal
+from binance_auto_ai.signal_probe import advice_from_action, evaluate_symbol_signal
 
 
 def test_advice_mapping() -> None:
@@ -32,10 +32,10 @@ def test_evaluate_symbol_signal_strategy() -> None:
     mock_strategy.on_bar.return_value = sig
 
     with (
-        patch("futures_llm_bot.signal_probe.build_exchange", return_value=ex),
-        patch("futures_llm_bot.signal_probe.load_binance_usdm_markets"),
-        patch("futures_llm_bot.signal_probe.build_live_strategy", return_value=mock_strategy),
-        patch("futures_llm_bot.signal_probe.strategy_min_ohlcv_bars", return_value=50),
+        patch("binance_auto_ai.signal_probe.build_exchange", return_value=ex),
+        patch("binance_auto_ai.signal_probe.load_binance_usdm_markets"),
+        patch("binance_auto_ai.signal_probe.build_live_strategy", return_value=mock_strategy),
+        patch("binance_auto_ai.signal_probe.strategy_min_ohlcv_bars", return_value=50),
     ):
         ex.fetch_ohlcv.return_value = [[0, 1.0, 1.0, 1.0, 1.0, 1.0]] * 50
         result = evaluate_symbol_signal(settings, "DOGE", ex=ex)
@@ -69,10 +69,10 @@ def test_evaluate_watch_includes_timing_hints() -> None:
     fake_ohlcv = [[i * 60000, c, c, c, c, 1.0] for i, c in enumerate(closes)]
 
     with (
-        patch("futures_llm_bot.signal_probe.build_exchange", return_value=ex),
-        patch("futures_llm_bot.signal_probe.load_binance_usdm_markets"),
-        patch("futures_llm_bot.signal_probe.build_live_strategy", return_value=mock_strategy),
-        patch("futures_llm_bot.signal_probe.strategy_min_ohlcv_bars", return_value=50),
+        patch("binance_auto_ai.signal_probe.build_exchange", return_value=ex),
+        patch("binance_auto_ai.signal_probe.load_binance_usdm_markets"),
+        patch("binance_auto_ai.signal_probe.build_live_strategy", return_value=mock_strategy),
+        patch("binance_auto_ai.signal_probe.strategy_min_ohlcv_bars", return_value=50),
     ):
         ex.fetch_ohlcv.return_value = fake_ohlcv
         result = evaluate_symbol_signal(settings, "DOGE", ex=ex)

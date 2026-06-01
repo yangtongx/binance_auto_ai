@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from futures_llm_bot.positions import fetch_futures_usdt_balance
+from binance_auto_ai.positions import fetch_futures_usdt_balance
 
 
 class _BalEx:

@@ -32,5 +32,5 @@ else
   echo "Telegram (optional): bash scripts/install-telegram-secrets.sh -i"
 fi
 
-echo "Next: docker compose run --rm bot python -m futures_llm_bot.cli --smoke"
+echo "Next: docker compose run --rm bot python -m binance_auto_ai.cli --smoke"
 echo "      docker compose up -d --build"

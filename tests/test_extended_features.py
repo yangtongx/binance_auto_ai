@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from futures_llm_bot.backtest.indicators import ichimoku_signal_state, volume_profile_poc
-from futures_llm_bot.config import Settings
-from futures_llm_bot.strategy_factory import build_live_strategy, min_bars_for_backtest
-from futures_llm_bot.telegram_notify import send_telegram_message
+from binance_auto_ai.backtest.indicators import ichimoku_signal_state, volume_profile_poc
+from binance_auto_ai.config import Settings
+from binance_auto_ai.strategy_factory import build_live_strategy, min_bars_for_backtest
+from binance_auto_ai.telegram_notify import send_telegram_message
 
 
 def test_min_bars_ichimoku_uses_senkou() -> None:

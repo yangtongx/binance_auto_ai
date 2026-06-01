@@ -12,7 +12,7 @@ def test_docker_secret_file_overrides_empty_env(monkeypatch: pytest.MonkeyPatch,
     monkeypatch.setenv("BINANCE_API_KEY", "")
     monkeypatch.setenv("BINANCE_API_KEY_FILE", str(key_file))
 
-    from futures_llm_bot.config import _load_docker_secrets
+    from binance_auto_ai.config import _load_docker_secrets
 
     _load_docker_secrets()
     assert os.environ["BINANCE_API_KEY"] == "test-api-key"

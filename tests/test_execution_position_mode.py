@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.execution import verify_position_mode_alignment
+from binance_auto_ai.config import Settings
+from binance_auto_ai.execution import verify_position_mode_alignment
 
 
 class _Ex:

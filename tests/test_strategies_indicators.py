@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from futures_llm_bot.backtest.engine import run_backtest
-from futures_llm_bot.backtest.strategies import _rsi_series
-from futures_llm_bot.strategy_factory import build_strategy_for_backtest, min_bars_for_backtest
+from binance_auto_ai.backtest.engine import run_backtest
+from binance_auto_ai.backtest.strategies import _rsi_series
+from binance_auto_ai.strategy_factory import build_strategy_for_backtest, min_bars_for_backtest
 
 
 def test_rsi_series_first_value_at_period() -> None:

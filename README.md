@@ -2,7 +2,6 @@
 
 **Languages:** [English](README.md) · [中文](README.zh.md)
 
-> Repository **binance_auto_ai** (formerly `futures_llm_bot`). Python package / CLI names unchanged: `futures_llm_bot`, `futures-llm-bot`.
 
 **binance_auto_ai** is a Python application for **Binance USDT-M (USDⓈ-M) linear perpetual futures**. It runs a periodic loop: pull market data and account state, turn them into trade **signals**, apply **risk** and **session** limits, then place orders through **CCXT** in either **one-way** or **hedge** position mode.
 
@@ -11,7 +10,7 @@ You can drive signals in two ways:
 1. **`SIGNAL_SOURCE=strategy`** — deterministic technical rules (same implementations as the bundled backtester): SMA cross, RSI, **rsi_adaptive**, MACD, Bollinger, Ichimoku-style cloud, Fibonacci pullback reclaim, volume-profile POC breakout, **Stochastic**, **ATR breakout**, optional **ML** (TorchScript / Keras), **composite** ensembles, optional **RL** (**Stable-Baselines3**).
 2. **`SIGNAL_SOURCE=llm`** — send OHLCV plus **account context** (positions, wallet, mode) to an **OpenAI-compatible** chat API (e.g. OpenAI, DeepSeek, Azure) and parse a strict JSON signal.
 
-The project also includes a **teaching backtest** (simplified PnL model), a **real exchange PnL** summarizer (`futures-llm-real-pnl`), a **rolling VaR** diagnostics command (`futures-llm-var-validate`), optional **HTTP observability** with a small **dashboard**, and **pytest** coverage for core paths.
+The project also includes a **teaching backtest** (simplified PnL model), a **real exchange PnL** summarizer (`binance-auto-real-pnl`), a **rolling VaR** diagnostics command (`binance-auto-var-validate`), optional **HTTP observability** with a small **dashboard**, and **pytest** coverage for core paths.
 
 > **Disclaimer:** This is **experimental** software. Futures are **high risk**. Prefer **testnet** and **`DRY_RUN=true`** until you fully understand behavior. You alone are responsible for API keys, configuration, and losses. The bundled backtest is **not** a substitute for exchange-reported PnL.
 
@@ -22,14 +21,14 @@ The project also includes a **teaching backtest** (simplified PnL model), a **re
 | Area | What you get |
 |------|----------------|
 | **Execution** | Binance USDM via `ccxt.binanceusdm`, testnet/mainnet, one-way vs hedge handling |
-| **Signals** | Rule strategies aligned with `futures-llm-backtest`, or LLM JSON output validated to `LLMSignal` |
+| **Signals** | Rule strategies aligned with `binance-auto-backtest`, or LLM JSON output validated to `LLMSignal` |
 | **Live WS (optional)** | `USE_WEBSOCKET=true`: REST-seeded + Binance **closed** kline stream, exponential backoff reconnect (`WS_RECONNECT_*`) |
 | **Telegram (optional)** | Named templates or custom `TELEGRAM_MESSAGE_TEMPLATE`; JSON `sendMessage` + optional `TELEGRAM_PARSE_MODE` |
 | **ML (optional)** | `STRATEGY_NAME=ml`: TorchScript (`ML_TORCH_ARCH=mlp\|lstm\|transformer`) or Keras flat MLP; **`ML_HOT_RELOAD`** watches `ML_MODEL_PATH` mtime (throttled) |
 | **ML training / ops** | `examples/train_ml_torch.py` (CSV / **paginated `--fetch`**); **`examples/cron_retrain_4h.sh`** for periodic retrain + atomic replace |
 | **Advanced rules** | **`composite`** (ensemble voting), **`rsi_adaptive`** (volatility-scaled RSI bands), **`rl_sb3`** (Stable-Baselines3 policy; **`.[rl]`**) |
 | **RL training** | `examples/train_rl_sb3.py`: **Gymnasium** `FuturesPerpBarEnv`, reward modes (`pnl` / `pnl_cost` / `risk_adjusted`), PPO + tunable hyperparameters |
-| **VaR validation** | **`futures-llm-var-validate`**: rolling historical VaR vs realized log returns, **Kupiec** coverage statistic (CLI on `--csv` or `--fetch`) |
+| **VaR validation** | **`binance-auto-var-validate`**: rolling historical VaR vs realized log returns, **Kupiec** coverage statistic (CLI on `--csv` or `--fetch`) |
 | **Risk** | `MIN_CONFIDENCE`, notional caps (`MAX_NOTIONAL_USDT`), optional daily trade cap and daily loss cap (UTC); optional **`RISK_VAR_*`** gate + **`RISK_CORR_*`** logging in **`cli`** |
 | **Session state** | JSON `STATE_FILE` with `filelock` for multi-process safety |
 | **Backtest** | CSV or CCXT fetch; **close-to-close** approximation + fees (`fee_bps`); **not** full funding/leverage simulation |
@@ -87,12 +86,12 @@ Editable install exposes console scripts:
 
 | Command | Purpose |
 |---------|---------|
-| `futures-llm-bot` | Main trading loop |
-| `futures-llm-backtest` | Rule backtest on CSV or `--fetch` |
-| `futures-llm-real-pnl` | Binance income history summary |
-| `futures-llm-var-validate` | Rolling **VaR backtest** + Kupiec statistic on historical log returns |
+| `binance-auto-ai` | Main trading loop |
+| `binance-auto-backtest` | Rule backtest on CSV or `--fetch` |
+| `binance-auto-real-pnl` | Binance income history summary |
+| `binance-auto-var-validate` | Rolling **VaR backtest** + Kupiec statistic on historical log returns |
 
-Without `pip install -e .`, set **`PYTHONPATH=src`** before `python -m futures_llm_bot`.
+Without `pip install -e .`, set **`PYTHONPATH=src`** before `python -m binance_auto_ai`.
 
 ---
 
@@ -101,16 +100,16 @@ Without `pip install -e .`, set **`PYTHONPATH=src`** before `python -m futures_l
 The repo includes a **`Dockerfile`**. **Do not** put API keys in the image or Git: configure **`BINANCE_API_KEY`**, **`BINANCE_API_SECRET`**, **`OPENAI_API_KEY`**, **`OPENAI_BASE_URL`**, **`OPENAI_MODEL`**, and the rest as **runtime environment variables** (CNB/K8s secrets, platform “环境变量”, etc.).
 
 ```bash
-docker build -t futures-llm-bot:local .
+docker build -t binance-auto-ai:local .
 docker run --rm \
   -e BINANCE_API_KEY -e BINANCE_API_SECRET \
   -e OPENAI_API_KEY -e OPENAI_BASE_URL=https://api.deepseek.com -e OPENAI_MODEL=deepseek-v4-pro \
   -e SIGNAL_SOURCE=llm -e BINANCE_TESTNET=true -e DRY_RUN=true \
   -v bot-state:/data \
-  futures-llm-bot:local
+  binance-auto-ai:local
 ```
 
-Volume **`/data`** persists session risk state (`STATE_FILE` defaults to `/data/.futures_llm_bot_state.json` in the image). Use **`futures-llm-real-pnl`** / **`futures-llm-backtest`** in CI or a sidecar only if you add those to the image (`pip install` already includes entry points).
+Volume **`/data`** persists session risk state (`STATE_FILE` defaults to `/data/.binance_auto_ai_state.json` in the image). Use **`binance-auto-real-pnl`** / **`binance-auto-backtest`** in CI or a sidecar only if you add those to the image (`pip install` already includes entry points).
 
 On **[Gitee](https://gitee.com)**: **https://gitee.com/yang-huidong/binance_auto_ai** — build from this `Dockerfile`; **never** commit `.env` or keys.
 
@@ -144,15 +143,15 @@ Copy **`.env.example`** → **`.env`** (loaded from repo root). Important groups
 ## Running the bot
 
 ```bash
-futures-llm-bot              # loop (waits for candle boundary)
-futures-llm-bot --once       # single tick, then exit
-futures-llm-bot --smoke      # load settings + imports only; no API calls
+binance-auto-ai              # loop (waits for candle boundary)
+binance-auto-ai --once       # single tick, then exit
+binance-auto-ai --smoke      # load settings + imports only; no API calls
 ```
 
 As a module:
 
 ```bash
-python -m futures_llm_bot --once
+python -m binance_auto_ai --once
 ```
 
 ---
@@ -163,7 +162,7 @@ python -m futures_llm_bot --once
 
 - Uses **`strategy_factory.build_live_strategy`** — same strategy classes as the backtester.  
 - **`OPENAI_API_KEY`** is **not** required.  
-- **`STRATEGY_NAME`** must match a registered id; parameters mirror **`futures-llm-backtest`** (including **composite**, **rsi_adaptive**, **rl_sb3** — see **[Strategies](#strategies-rules)**).
+- **`STRATEGY_NAME`** must match a registered id; parameters mirror **`binance-auto-backtest`** (including **composite**, **rsi_adaptive**, **rl_sb3** — see **[Strategies](#strategies-rules)**).
 
 ### LLM mode (`SIGNAL_SOURCE=llm`)
 
@@ -235,7 +234,7 @@ The backtest package exposes **`fetch_ohlcv_ccxt_paginated`** in **`backtest/dat
 
 - **Live / backtest:** **`STRATEGY_NAME=rl_sb3`** loads a **Stable-Baselines3** checkpoint (**`RL_MODEL_PATH`**, zip from `model.save`). Observation matches training: **`RL_WINDOW`** closes → **`RL_WINDOW-1`** clipped **log-returns**; actions **0 / 1 / 2** = **flat / long / short** (target net position for the **next** bar’s log return).
 - **Install:** `pip install -e ".[rl]"` (pulls **gymnasium** + **stable-baselines3**).
-- **Environment:** `futures_llm_bot.rl.futures_perp_env.FuturesPerpBarEnv` — reward modes **`pnl`**, **`pnl_cost`** (turnover × `trans_cost`), **`risk_adjusted`** (drawdown penalty on a simple cumulative PnL trace).
+- **Environment:** `binance_auto_ai.rl.futures_perp_env.FuturesPerpBarEnv` — reward modes **`pnl`**, **`pnl_cost`** (turnover × `trans_cost`), **`risk_adjusted`** (drawdown penalty on a simple cumulative PnL trace).
 
 ```bash
 pip install -e ".[rl]"
@@ -254,13 +253,13 @@ python examples/train_rl_sb3.py --fetch --no-testnet --symbol BTC/USDT:USDT --ti
 
 Align **`RL_WINDOW`** and the saved zip path with **`RL_MODEL_PATH`** before live use. Training rewards are **simplified** (bar log returns, not fees/funding); refine for production.
 
-### VaR backtest CLI (`futures-llm-var-validate`)
+### VaR backtest CLI (`binance-auto-var-validate`)
 
 Offline check of **rolling historical VaR** on **log returns**: at each `t`, VaR = `alpha` quantile of the prior **`lookback`** returns; a **violation** occurs if the **realized** return at `t` is **below** that VaR. The tool reports the **empirical hit rate** and a **Kupiec** unconditional coverage likelihood-ratio statistic (~ χ²(1); flag **`reject_h0_coverage_5pct`** vs critical value **3.84**).
 
 ```bash
-futures-llm-var-validate --fetch --no-testnet --symbol BTC/USDT:USDT --timeframe 1h --limit 5000 --lookback 250 --alpha 0.05
-futures-llm-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-out var_report.json
+binance-auto-var-validate --fetch --no-testnet --symbol BTC/USDT:USDT --timeframe 1h --limit 5000 --lookback 250 --alpha 0.05
+binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-out var_report.json
 ```
 
 **Caveats:** i.i.d. returns are assumed in the simplest interpretation; **volatility clustering** breaks independence — consider **Christoffersen** / independence tests or **filtered historical simulation** for regulatory-grade work. The **live** **`RISK_VAR_*`** gate in **`cli`** uses the same quantile idea on the trailing **`RISK_VAR_WINDOW`** window.
@@ -278,20 +277,20 @@ futures-llm-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-o
 
 ---
 
-## Backtest (`futures-llm-backtest`)
+## Backtest (`binance-auto-backtest`)
 
 ```bash
-futures-llm-backtest --fetch --timeframe 1h --limit 800 --strategy sma_cross --fast 10 --slow 30
-futures-llm-backtest --fetch --strategy rsi --rsi-period 14 --limit 600
-futures-llm-backtest --csv path/to/ohlcv.csv --strategy macd --fast 12 --slow 26 --macd-signal 9
-futures-llm-backtest --fetch --strategy stoch --stoch-k 14 --stoch-d 3 --limit 600
-futures-llm-backtest --fetch --strategy atr_breakout --atr-period 14 --atr-mult 1.5 --limit 800
+binance-auto-backtest --fetch --timeframe 1h --limit 800 --strategy sma_cross --fast 10 --slow 30
+binance-auto-backtest --fetch --strategy rsi --rsi-period 14 --limit 600
+binance-auto-backtest --csv path/to/ohlcv.csv --strategy macd --fast 12 --slow 26 --macd-signal 9
+binance-auto-backtest --fetch --strategy stoch --stoch-k 14 --stoch-d 3 --limit 600
+binance-auto-backtest --fetch --strategy atr_breakout --atr-period 14 --atr-mult 1.5 --limit 800
 # ML backtest requires --ml-model and optional --ml-torch-arch / --ml-backend
 ```
 
-See **`futures-llm-backtest --help`** for Ichimoku, Fib, VP, **composite** (`--composite-members`, …), **rsi_adaptive** (`--vol-*`), **ML**, and **rl_sb3** (`--rl-model`, **`.[rl]`** required to run).
+See **`binance-auto-backtest --help`** for Ichimoku, Fib, VP, **composite** (`--composite-members`, …), **rsi_adaptive** (`--vol-*`), **ML**, and **rl_sb3** (`--rl-model`, **`.[rl]`** required to run).
 
-For **VaR calibration** on the same history, use **`futures-llm-var-validate`** (rolling quantile backtest + Kupiec).
+For **VaR calibration** on the same history, use **`binance-auto-var-validate`** (rolling quantile backtest + Kupiec).
 
 **CSV columns:** `timestamp_ms,open,high,low,close,volume` (header optional).
 
@@ -299,14 +298,14 @@ The engine is a **simplified linear-perp teaching model** (bar close fills, sing
 
 ---
 
-## Real exchange PnL (`futures-llm-real-pnl`)
+## Real exchange PnL (`binance-auto-real-pnl`)
 
 Aggregates Binance USDT-M **income history** (`REALIZED_PNL`, `FUNDING_FEE`, `COMMISSION`, etc.):
 
 ```bash
-futures-llm-real-pnl --days 7
-futures-llm-real-pnl --since 2026-01-01 --until 2026-01-31
-futures-llm-real-pnl --all-contracts --days 1
+binance-auto-real-pnl --days 7
+binance-auto-real-pnl --since 2026-01-01 --until 2026-01-31
+binance-auto-real-pnl --all-contracts --days 1
 ```
 
 Transfers are shown by type but excluded from the printed “trading cashflow” subtotal. **Unrealized** PnL on open positions is **not** in this ledger — use positions / balance for a full picture.
@@ -344,7 +343,7 @@ After a clean venv and `pip install -e ".[dev]"`, you may align versions with **
 
 | Path | Role |
 |------|------|
-| `src/futures_llm_bot/` | Application package (`cli`, `execution`, `backtest`, `strategy_factory`, `ml_signal_strategy`, `rl/`, `risk_metrics`, `var_validation` …) |
+| `src/binance_auto_ai/` | Application package (`cli`, `execution`, `backtest`, `strategy_factory`, `ml_signal_strategy`, `rl/`, `risk_metrics`, `var_validation` …) |
 | `examples/` | **`train_ml_torch.py`**, **`train_rl_sb3.py`** (SB3 PPO); **`cron_retrain_4h.sh`** (atomic `mv` retrain) |
 | `tests/` | Pytest suite |
 | `ARCHITECTURE.md` | Module map, flow, extension points |

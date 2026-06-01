@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import numpy as np
 
-from futures_llm_bot.backtest.engine import run_backtest
-from futures_llm_bot.backtest.strategies import RsiThresholdStrategy, SMACrossStrategy
-from futures_llm_bot.composite_strategy import CompositeStrategy
-from futures_llm_bot.risk_metrics import (
+from binance_auto_ai.backtest.engine import run_backtest
+from binance_auto_ai.backtest.strategies import RsiThresholdStrategy, SMACrossStrategy
+from binance_auto_ai.composite_strategy import CompositeStrategy
+from binance_auto_ai.risk_metrics import (
     historical_var_return,
     log_returns_from_closes,
     var_tail_block_reason_from_ohlcv,
 )
-from futures_llm_bot.strategy_factory import build_strategy_for_backtest, parse_composite_members
+from binance_auto_ai.strategy_factory import build_strategy_for_backtest, parse_composite_members
 
 
 def _synth_ohlcv(n: int, *, drift: float = 0.0001) -> list[list[float]]:

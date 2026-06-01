@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.execution_helpers import directional_notional_or_skip
-from futures_llm_bot.schemas import Action, LLMSignal
+from binance_auto_ai.config import Settings
+from binance_auto_ai.execution_helpers import directional_notional_or_skip
+from binance_auto_ai.schemas import Action, LLMSignal
 
 
 def _sig(action: Action = Action.LONG, size_pct: float = 100.0) -> LLMSignal:

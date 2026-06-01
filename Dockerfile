@@ -35,4 +35,4 @@ VOLUME ["/app/state"]
 STOPSIGNAL SIGTERM
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["futures-llm-bot"]
+CMD ["binance-auto-ai"]

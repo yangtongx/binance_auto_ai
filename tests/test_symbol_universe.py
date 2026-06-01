@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.symbol_universe import (
+from binance_auto_ai.config import Settings
+from binance_auto_ai.symbol_universe import (
     affordable_max_notional_usdt,
     is_auto_symbol_candidates,
     parse_rank_metrics,

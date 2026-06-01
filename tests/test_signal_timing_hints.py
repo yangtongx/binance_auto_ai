@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from futures_llm_bot.schemas import Action, LLMSignal
-from futures_llm_bot.signal_timing_hints import build_watch_timing_hints
+from binance_auto_ai.schemas import Action, LLMSignal
+from binance_auto_ai.signal_timing_hints import build_watch_timing_hints
 
 
 def _ohlcv_from_closes(closes: list[float]) -> list[list[float]]:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from futures_llm_bot.positions import signed_position_contracts
+from binance_auto_ai.positions import signed_position_contracts
 
 
 def test_signed_position_unknown_side_does_not_use_notional_as_contracts() -> None:

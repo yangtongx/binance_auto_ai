@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from futures_llm_bot.backtest.data import fetch_ohlcv_ccxt_paginated
+from binance_auto_ai.backtest.data import fetch_ohlcv_ccxt_paginated
 
 
 def test_fetch_ohlcv_ccxt_paginated_two_chunks() -> None:
@@ -21,7 +21,7 @@ def test_fetch_ohlcv_ccxt_paginated_two_chunks() -> None:
 
     m_ex.fetch_ohlcv = MagicMock(side_effect=fetch_side_effect)
 
-    with patch("futures_llm_bot.backtest.data._new_binance_usdm_exchange", return_value=m_ex):
+    with patch("binance_auto_ai.backtest.data._new_binance_usdm_exchange", return_value=m_ex):
         rows = fetch_ohlcv_ccxt_paginated(
             symbol="BTC/USDT:USDT",
             timeframe="1h",

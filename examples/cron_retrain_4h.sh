@@ -2,7 +2,7 @@
 # 示例：每 4 小时重训 TorchScript（cron / systemd）
 #
 # Crontab（UTC），例如在 0、4、8、12、16、20 点的第 5 分钟：
-#   5 */4 * * * /path/to/futures_llm_bot/examples/cron_retrain_4h.sh >> /var/log/ml_retrain.log 2>&1
+#   5 */4 * * * /path/to/binance_auto_ai/examples/cron_retrain_4h.sh >> /var/log/ml_retrain.log 2>&1
 #
 # 按需调整路径与环境；机器人读取 ML_MODEL_PATH — 先写临时文件再 mv 原子替换
 

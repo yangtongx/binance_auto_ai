@@ -3,7 +3,7 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "futures-llm-bot"
+name = "binance-auto-ai"
 version = "0.1.0"
 description = "Binance USDT-M perpetual futures bot driven by LLM trade signals."
 readme = "README.md"
@@ -26,11 +26,11 @@ ml-tf = ["tensorflow>=2.15.0"]
 rl = ["stable-baselines3>=2.3.0", "gymnasium>=0.29"]
 
 [project.scripts]
-futures-llm-bot = "futures_llm_bot.cli:main"
-futures-llm-backtest = "futures_llm_bot.backtest_cli:main"
-futures-llm-real-pnl = "futures_llm_bot.real_pnl_cli:main"
-futures-llm-var-validate = "futures_llm_bot.var_validation_cli:main"
-futures-llm-signal = "futures_llm_bot.signal_cli:main"
+binance-auto-ai = "binance_auto_ai.cli:main"
+binance-auto-backtest = "binance_auto_ai.backtest_cli:main"
+binance-auto-real-pnl = "binance_auto_ai.real_pnl_cli:main"
+binance-auto-var-validate = "binance_auto_ai.var_validation_cli:main"
+binance-auto-signal = "binance_auto_ai.signal_cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
@@ -38,7 +38,7 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 
-# Pylance / Pyright: resolve `futures_llm_bot` from src layout (fixes unresolved import warnings in IDE)
+# Pylance / Pyright: resolve `binance_auto_ai` from src layout (fixes unresolved import warnings in IDE)
 [tool.pyright]
 pythonVersion = "3.10"
 extraPaths = ["src"]
