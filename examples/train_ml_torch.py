@@ -5,7 +5,7 @@
 **You do not need your own trade logs.** Use either:
 
 - **Synthetic** random walk (default): sanity-check pipeline only.
-- **``--csv``**: OHLCV file in the same shape as ``futures-llm-backtest`` (timestamp, o, h, l, c, v).
+- **``--csv``**: OHLCV file in the same shape as ``binance-auto-backtest`` (timestamp, o, h, l, c, v).
 - **``--fetch``**: download public **Binance USDM** history via CCXT (no API key for read-only klines).
 
 Labels in this script are still **heuristic** (next-bar log-return vs a neutral band ``--eps``).
@@ -20,7 +20,7 @@ Usage (from repo root; ``pip install -e ".[ml-torch]"`` first)::
     python examples/train_ml_torch.py --fetch --no-testnet --symbol BTC/USDT:USDT --timeframe 4h --limit 20000 \\
         --page-size 1500 --arch lstm --window 48 --epochs 40 --out artifacts/ml_latest.pt
 
-    # 与 ``futures-llm-backtest`` 兼容导出的 CSV
+    # 与 ``binance-auto-backtest`` 兼容导出的 CSV
     python examples/train_ml_torch.py --csv data/btc_1h.csv --arch mlp --window 32 --out artifacts/ml_csv.pt
 
 Live: ``STRATEGY_NAME=ml``, ``ML_BACKEND=torch``, ``ML_TORCH_ARCH`` matching ``--arch``,
@@ -74,7 +74,7 @@ def _labels_from_future_ret(closes: np.ndarray, eps: float) -> np.ndarray:
 def _load_closes(args: argparse.Namespace) -> np.ndarray:
     if args.csv is not None:
         _repo_src_on_path()
-        from futures_llm_bot.backtest.data import load_ohlcv_csv
+        from binance_auto_ai.backtest.data import load_ohlcv_csv
 
         rows = load_ohlcv_csv(args.csv)
         if len(rows) < args.window + 10:
@@ -83,7 +83,7 @@ def _load_closes(args: argparse.Namespace) -> np.ndarray:
 
     if args.fetch:
         _repo_src_on_path()
-        from futures_llm_bot.backtest.data import fetch_ohlcv_ccxt_paginated
+        from binance_auto_ai.backtest.data import fetch_ohlcv_ccxt_paginated
 
         rows = fetch_ohlcv_ccxt_paginated(
             symbol=args.symbol,
@@ -105,7 +105,7 @@ def _load_closes(args: argparse.Namespace) -> np.ndarray:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Train toy ML model → TorchScript for futures-llm-bot.")
+    p = argparse.ArgumentParser(description="Train toy ML model → TorchScript for binance-auto-ai.")
     p.add_argument("--arch", choices=("mlp", "lstm", "transformer"), default="lstm")
     p.add_argument("--window", type=int, default=32, help="Per live STRATEGY_ML_WINDOW (≥8)")
     p.add_argument("--epochs", type=int, default=30)

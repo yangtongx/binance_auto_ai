@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.strategy_factory import build_live_strategy
+from binance_auto_ai.config import Settings
+from binance_auto_ai.strategy_factory import build_live_strategy
 
 
 def test_settings_strategy_requires_fast_lt_slow() -> None:

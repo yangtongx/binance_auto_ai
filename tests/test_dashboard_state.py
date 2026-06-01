@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from futures_llm_bot.dashboard_state import DashboardState
-from futures_llm_bot.schemas import Action, LLMSignal
+from binance_auto_ai.dashboard_state import DashboardState
+from binance_auto_ai.schemas import Action, LLMSignal
 
 
 def test_dashboard_snapshot_roundtrip() -> None:

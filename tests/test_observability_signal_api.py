@@ -6,8 +6,8 @@ import time
 from unittest.mock import patch
 from urllib.request import urlopen
 
-from futures_llm_bot.observability import start_observability_background
-from futures_llm_bot.signal_probe import SignalProbeResult
+from binance_auto_ai.observability import start_observability_background
+from binance_auto_ai.signal_probe import SignalProbeResult
 
 
 def _free_port() -> int:
@@ -32,8 +32,8 @@ def test_api_signal_endpoint() -> None:
     )
 
     with (
-        patch("futures_llm_bot.observability.Settings") as st_cls,
-        patch("futures_llm_bot.observability.evaluate_symbol_signal", return_value=fake) as ev,
+        patch("binance_auto_ai.observability.Settings") as st_cls,
+        patch("binance_auto_ai.observability.evaluate_symbol_signal", return_value=fake) as ev,
     ):
         st_cls.return_value = object()
         start_observability_background("127.0.0.1", port)

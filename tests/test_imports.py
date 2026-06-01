@@ -2,12 +2,12 @@ from __future__ import annotations
 
 
 def test_package_version() -> None:
-    import futures_llm_bot
+    import binance_auto_ai
 
-    assert isinstance(futures_llm_bot.__version__, str)
+    assert isinstance(binance_auto_ai.__version__, str)
 
 
 def test_cli_main_importable() -> None:
-    from futures_llm_bot.cli import main
+    from binance_auto_ai.cli import main
 
     assert callable(main)

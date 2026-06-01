@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from futures_llm_bot.real_pnl import aggregate_income_by_type, parse_iso_date_utc, trading_cashflow_usdt
+from binance_auto_ai.real_pnl import aggregate_income_by_type, parse_iso_date_utc, trading_cashflow_usdt
 
 
 def test_parse_iso_date_utc_date_only() -> None:

@@ -1,6 +1,6 @@
 # Architecture
 
-This document is a concise map of the **futures-llm-bot** package: how data flows, where risk lives, and how modules relate.
+This document is a concise map of the **binance-auto-ai** package: how data flows, where risk lives, and how modules relate.
 
 ## High-level flow
 
@@ -49,7 +49,7 @@ flowchart LR
 | `composite_strategy` | Voting / weighted / unanimity / first-non-hold merge of child **`Strategy`** instances. |
 | `risk_metrics` | Log returns, historical VaR quantile, rolling vol helpers, return correlation; used by **`cli`** VaR gate and **`var_validation`**. |
 | `var_validation` | Rolling historical VaR **violation** counts and **Kupiec** unconditional coverage LR (~ χ²(1)). |
-| `var_validation_cli` | Console **`futures-llm-var-validate`** (`--csv` or `--fetch`). |
+| `var_validation_cli` | Console **`binance-auto-var-validate`** (`--csv` or `--fetch`). |
 | `binance_kline_ws` | Optional WebSocket consumer: **`reconnect_delay_sec`**, thread **`WebSocketApp`** loop, in-memory OHLCV deque. |
 | `telegram_format` / `telegram_notify` | Named/custom **`str.format`** templates; JSON **`sendMessage`** + optional **`parse_mode`**. |
 | `real_pnl` / `real_pnl_cli` | Fetch Binance USDT-M `/fapi/v1/income`, aggregate REALIZED_PNL / FUNDING_FEE / COMMISSION (exchange-reported). |
@@ -58,7 +58,7 @@ flowchart LR
 | `metrics` | In-process counters for ticks, LLM latency, real orders. |
 | `observability` | Optional daemon HTTP: **`/` / `/dashboard`** (HTML UI polling `/health`), **`/health`**, **`/metrics`**. |
 | `constants` | Shared epsilons and sane price bounds. |
-| `backtest/` | Rule strategies + `run_backtest` on OHLCV (CSV or CCXT fetch); see `futures-llm-backtest` CLI. |
+| `backtest/` | Rule strategies + `run_backtest` on OHLCV (CSV or CCXT fetch); see `binance-auto-backtest` CLI. |
 
 ## Backtest (route 1: rules + history)
 
@@ -67,7 +67,7 @@ flowchart LR
 - **`backtest/indicators.py`**: NumPy **vectorized** series (SMA/EMA/RSI/MACD/Bollinger, Ichimoku helpers, Fib levels, volume-profile POC, **Stochastic**, **Wilder ATR**, true range) and **incremental streams** for core indicators (O(1) per bar when the close prefix grows by one row where implemented).
 - **`backtest/strategies.py`**: Rule classes above plus **Ichimoku**, **Fib**, **VP**, **Stochastic**, **ATR breakout** → **`LLMSignal`**.
 - **`backtest/data.py`**: `load_ohlcv_csv`, `fetch_ohlcv_ccxt`, **`fetch_ohlcv_ccxt_paginated`** (Binance `endTime` paging for long history).
-- **CLI**: `futures-llm-backtest --strategy … --csv path` or `--fetch …` (see `--help`; includes **ML** flags and extended params).
+- **CLI**: `binance-auto-backtest --strategy … --csv path` or `--fetch …` (see `--help`; includes **ML** flags and extended params).
 - **`examples/train_ml_torch.py`**: Illustrative **MLP/LSTM/Mini-Transformer** training + **TorchScript** export (not production labels).
 
 This path is **deterministic** and suitable for walk-forward and parameter sweeps; it does **not** call the LLM.
@@ -88,7 +88,7 @@ This path is **deterministic** and suitable for walk-forward and parameter sweep
 ## VaR validation (offline)
 
 - **`var_validation.py`**: For each forecast index `t`, VaR = empirical **`alpha`** quantile of **prior `lookback` log returns**; **violation** if realized **`r[t] < VaR`**. Reports rate and **Kupiec** LR (simple unconditional coverage test — not sufficient under volatility clustering).
-- **`var_validation_cli.py`**: **`futures-llm-var-validate`** shares data loading patterns with **`backtest_cli`** (`--csv` / `--fetch`).
+- **`var_validation_cli.py`**: **`binance-auto-var-validate`** shares data loading patterns with **`backtest_cli`** (`--csv` / `--fetch`).
 - **Live gate:** **`cli._tick`** may block **LONG/SHORT** when **`RISK_VAR_BLOCK`** and trailing-window VaR breaches **`RISK_VAR_TAIL_LIMIT`** (see **`risk_metrics.var_tail_block_reason_from_ohlcv`**).
 
 ## Observability
@@ -110,7 +110,7 @@ Bind address is **`OBSERVABILITY_HOST`** (default `127.0.0.1`). Use a reverse pr
 
 - **New exchange**: Implement the same duck-typed surface as CCXT (`fetch_positions`, `create_order`, `market`, …) or add an adapter.
 - **Stricter risk**: Extend `session_risk` or add a layer before `execute_signal`.
-- **New strategy (backtest + live)**: Implement `reset` / `on_bar` → **`LLMSignal`**; register in **`strategy_factory.build_strategy_for_backtest`**, **`min_bars_for_backtest`**, **`Settings`** validation, and **`futures-llm-backtest`** choices/args.
+- **New strategy (backtest + live)**: Implement `reset` / `on_bar` → **`LLMSignal`**; register in **`strategy_factory.build_strategy_for_backtest`**, **`min_bars_for_backtest`**, **`Settings`** validation, and **`binance-auto-backtest`** choices/args.
 - **ML models**: Train offline; match **input rank** (`mlp` vs `lstm`/`transformer`) and **3-class** head to **`ml_signal_strategy`**; export TorchScript with **`torch.jit.trace`** (or compatible).
 - **Alerting**: Poll `/health` or scrape `/metrics`; wire to PagerDuty/Slack outside this repo (e.g. Prometheus `alertmanager`, or a tiny cron hitting `/health`).
 - **Higher-frequency / multi-symbol / async IO**: Would need **`ccxt.async_support`**, per-symbol state, and scheduling; not in the current single-pair sync loop.

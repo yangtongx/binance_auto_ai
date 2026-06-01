@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from futures_llm_bot.time_display import format_iso_to_display
+from binance_auto_ai.time_display import format_iso_to_display
 
 
 def test_format_iso_to_cst() -> None:

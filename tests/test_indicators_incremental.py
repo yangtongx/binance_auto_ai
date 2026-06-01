@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import numpy as np
 
-from futures_llm_bot.backtest.indicators import (
+from binance_auto_ai.backtest.indicators import (
     MACDStream,
     RSIWilderStream,
     SMACrossStream,
     macd_signal_last,
     rsi_wilder_series,
 )
-from futures_llm_bot.backtest.strategies import (
+from binance_auto_ai.backtest.strategies import (
     MacdCrossStrategy,
     RsiThresholdStrategy,
     SMACrossStrategy,

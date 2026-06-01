@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from futures_llm_bot.symbol_input import candidate_ccxt_symbols, resolve_usdm_symbol
+from binance_auto_ai.symbol_input import candidate_ccxt_symbols, resolve_usdm_symbol
 
 
 class _FakeEx:

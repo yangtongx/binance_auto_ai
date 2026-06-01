@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from futures_llm_bot.backtest.indicators import atr_wilder_series, stochastic_cross_state
-from futures_llm_bot.binance_kline_ws import reconnect_delay_sec
-from futures_llm_bot.config import Settings
-from futures_llm_bot.schemas import Action, LLMSignal
-from futures_llm_bot.telegram_format import format_trade_message
-from futures_llm_bot.telegram_notify import should_notify_trade_signal
+from binance_auto_ai.backtest.indicators import atr_wilder_series, stochastic_cross_state
+from binance_auto_ai.binance_kline_ws import reconnect_delay_sec
+from binance_auto_ai.config import Settings
+from binance_auto_ai.schemas import Action, LLMSignal
+from binance_auto_ai.telegram_format import format_trade_message
+from binance_auto_ai.telegram_notify import should_notify_trade_signal
 
 
 def test_reconnect_delay_monotonic() -> None:

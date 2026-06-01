@@ -7,7 +7,7 @@ gymnasium = pytest.importorskip("gymnasium")
 
 
 def test_futures_perp_env_smoke():
-    from futures_llm_bot.rl.futures_perp_env import FuturesPerpBarEnv
+    from binance_auto_ai.rl.futures_perp_env import FuturesPerpBarEnv
 
     c = 100_000 * np.exp(np.cumsum(np.random.default_rng(1).normal(0, 0.001, size=800)))
     env = FuturesPerpBarEnv(c, window=32, episode_len=64)

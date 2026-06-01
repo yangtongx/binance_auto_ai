@@ -1,7 +1,5 @@
 # 初学者如何读懂 binance_auto_ai
 
-> Python 包名仍为 `futures_llm_bot`，命令行仍为 `futures-llm-bot`。
-
 > 面向「会一点 Python、没写过交易机器人」的读者。按本文顺序读代码，能覆盖 **80% 日常逻辑**；ML/RL/复杂指标可放到第二阶段。
 
 ---
@@ -99,7 +97,7 @@ flowchart TB
 | `symbol_picker.py` → `evaluate_candidate_signals` | 对每个候选币调 `strategy.on_bar()` |
 | `llm_strategy.py` | 仅当你用 `SIGNAL_SOURCE=llm` 时再读 |
 
-**练习：** 在 `SMACrossStrategy.on_bar` 里加一行 `print`，用 `futures-llm-backtest` 跑回测，看输出。
+**练习：** 在 `SMACrossStrategy.on_bar` 里加一行 `print`，用 `binance-auto-backtest` 跑回测，看输出。
 
 ### 第 3 步：主程序怎么串起来（2 小时）
 
@@ -200,16 +198,16 @@ flowchart TB
 
 ```bash
 # 1. 只检查配置与 import
-futures-llm-bot --smoke
+binance-auto-ai --smoke
 
 # 2. 历史回测（不连实盘、理解 SMA）
-futures-llm-backtest --strategy sma_cross --fetch --symbol DOGE/USDT:USDT --days 3
+binance-auto-backtest --strategy sma_cross --fetch --symbol DOGE/USDT:USDT --days 3
 
 # 3. 诊币（不下单）
-futures-llm-signal -s DOGE
+binance-auto-signal -s DOGE
 
 # 4. 实盘逻辑但 DRY_RUN=true：只打日志
-futures-llm-bot --once
+binance-auto-ai --once
 ```
 
 **务必保持 `DRY_RUN=true` 直到你完全理解日志里的每一步。**

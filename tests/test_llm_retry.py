@@ -4,8 +4,8 @@ import httpx
 import pytest
 from openai import APITimeoutError
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.llm_strategy import llm_decide
+from binance_auto_ai.config import Settings
+from binance_auto_ai.llm_strategy import llm_decide
 
 
 def test_llm_decide_retries_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,7 +36,7 @@ def test_llm_decide_retries_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_openai(**kwargs):  # noqa: ANN003
         return _Client()
 
-    monkeypatch.setattr("futures_llm_bot.llm_strategy.OpenAI", _fake_openai)
+    monkeypatch.setattr("binance_auto_ai.llm_strategy.OpenAI", _fake_openai)
 
     s = Settings.model_construct(
         openai_api_key="sk-test",

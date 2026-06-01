@@ -11,14 +11,14 @@ def test_state_file_redirects_to_app_state_in_docker(monkeypatch: pytest.MonkeyP
     docker_state = state_dir / "state.json"
 
     monkeypatch.setenv("SYMBOL", "BTC/USDT:USDT")
-    monkeypatch.setenv("STATE_FILE", ".futures_llm_bot_state.json")
+    monkeypatch.setenv("STATE_FILE", ".binance_auto_ai_state.json")
 
-    import futures_llm_bot.config as cfg
+    import binance_auto_ai.config as cfg
 
     monkeypatch.setattr(cfg, "_DOCKER_STATE_FILE", docker_state)
     monkeypatch.setattr(cfg, "_in_docker", lambda: True)
 
-    from futures_llm_bot.config import Settings
+    from binance_auto_ai.config import Settings
 
     s = Settings()
     assert s.state_file == docker_state

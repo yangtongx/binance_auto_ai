@@ -16,4 +16,4 @@ examples
 artifacts
 *.md
 !README.md
-.futures_llm_bot_state.json
+.binance_auto_ai_state.json

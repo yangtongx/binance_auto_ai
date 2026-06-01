@@ -18,7 +18,7 @@ if (-not $token -or -not $chatId) {
 
 $body = @{
     chat_id = $chatId
-    text    = "futures-llm-bot telegram test OK"
+    text    = "binance-auto-ai telegram test OK"
 } | ConvertTo-Json -Compress
 
 $uri = "https://api.telegram.org/bot$token/sendMessage"

@@ -4,7 +4,7 @@ import math
 
 import numpy as np
 
-from futures_llm_bot.var_validation import (
+from binance_auto_ai.var_validation import (
     kupiec_uc_lr,
     rolling_var_violations,
     var_backtest_report,

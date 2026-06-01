@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Local wrapper; installed CLI: ``futures-llm-verify-keys``."""
+"""Local wrapper; installed CLI: ``binance-auto-verify-keys``."""
 
-from futures_llm_bot.verify_binance_cli import main
+from binance_auto_ai.verify_binance_cli import main
 
 if __name__ == "__main__":
     main()

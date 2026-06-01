@@ -41,11 +41,11 @@
 
 | 命令 | 模块 |
 |------|------|
-| `futures-llm-bot` | `cli.py` / `__main__.py` |
-| `futures-llm-signal` | `signal_cli.py` |
-| `futures-llm-backtest` | `backtest_cli.py` |
-| `futures-llm-real-pnl` | `real_pnl_cli.py` |
-| `futures-llm-var-validate` | `var_validation_cli.py` |
+| `binance-auto-ai` | `cli.py` / `__main__.py` |
+| `binance-auto-signal` | `signal_cli.py` |
+| `binance-auto-backtest` | `backtest_cli.py` |
+| `binance-auto-real-pnl` | `real_pnl_cli.py` |
+| `binance-auto-var-validate` | `var_validation_cli.py` |
 | 验密钥 | `verify_binance_cli.py` |
 
 ## 回测与 RL

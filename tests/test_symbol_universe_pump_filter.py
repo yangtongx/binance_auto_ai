@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.symbol_universe import select_top_usdm_candidates
+from binance_auto_ai.config import Settings
+from binance_auto_ai.symbol_universe import select_top_usdm_candidates
 
 
 def _ticker(pct: float, qv: float, last: float = 1.0) -> dict[str, object]:

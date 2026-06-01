@@ -49,7 +49,7 @@ def _synthetic_closes(n: int, seed: int = 42) -> np.ndarray:
 def _load_closes(args: argparse.Namespace) -> np.ndarray:
     if args.csv is not None:
         _repo_src_on_path()
-        from futures_llm_bot.backtest.data import load_ohlcv_csv
+        from binance_auto_ai.backtest.data import load_ohlcv_csv
 
         rows = load_ohlcv_csv(args.csv)
         if len(rows) < args.window + args.episode_len + 20:
@@ -58,7 +58,7 @@ def _load_closes(args: argparse.Namespace) -> np.ndarray:
 
     if args.fetch:
         _repo_src_on_path()
-        from futures_llm_bot.backtest.data import fetch_ohlcv_ccxt_paginated
+        from binance_auto_ai.backtest.data import fetch_ohlcv_ccxt_paginated
 
         rows = fetch_ohlcv_ccxt_paginated(
             symbol=args.symbol,
@@ -132,7 +132,7 @@ def main() -> None:
         ) from e
 
     _repo_src_on_path()
-    from futures_llm_bot.rl.futures_perp_env import FuturesPerpBarEnv
+    from binance_auto_ai.rl.futures_perp_env import FuturesPerpBarEnv
 
     closes = _load_closes(args)
     arch = _parse_arch(args.net_arch)

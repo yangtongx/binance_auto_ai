@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from futures_llm_bot.config import Settings
-from futures_llm_bot.exchange_env import ccxt_proxies, normalize_proxy_url, resolve_binance_proxy
+from binance_auto_ai.config import Settings
+from binance_auto_ai.exchange_env import ccxt_proxies, normalize_proxy_url, resolve_binance_proxy
 
 
 def test_socks5_normalized_to_socks5h() -> None:

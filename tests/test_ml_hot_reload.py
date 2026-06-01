@@ -36,7 +36,7 @@ def _inferable_module():
 
 def test_ml_hot_reload_calls_jit_load_when_mtime_changes(tmp_path: Path) -> None:
     pytest.importorskip("torch")
-    from futures_llm_bot.ml_signal_strategy import TorchScriptMLStrategy
+    from binance_auto_ai.ml_signal_strategy import TorchScriptMLStrategy
 
     p = tmp_path / "model.pt"
     p.write_bytes(b"dummy")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from futures_llm_bot.backtest.engine import run_backtest
-from futures_llm_bot.backtest.strategies import SMACrossStrategy
+from binance_auto_ai.backtest.engine import run_backtest
+from binance_auto_ai.backtest.strategies import SMACrossStrategy
 
 
 def _synth_uptrend(n: int = 120, base: float = 10_000.0) -> list[list[float]]:
