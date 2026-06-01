@@ -165,6 +165,7 @@ class Settings(BaseSettings):
     telegram_notify_pool_refresh: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_POOL_REFRESH")
     telegram_notify_orders: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_ORDERS")
     telegram_notify_errors: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_ERRORS")
+    telegram_notify_cg_alerts: bool = Field(default=True, validation_alias="TELEGRAM_NOTIFY_CG_ALERTS")
 
     use_websocket: bool = Field(default=False, validation_alias="USE_WEBSOCKET")
     ws_reconnect_base_sec: float = Field(default=1.0, gt=0.0, le=120.0, validation_alias="WS_RECONNECT_BASE_SEC")
@@ -243,6 +244,28 @@ class Settings(BaseSettings):
     coinglass_max_abs_funding_pct: float = Field(
         default=0.0, ge=0.0, validation_alias="COINGLASS_MAX_ABS_FUNDING_PCT"
     )
+    # --- CoinGlass 链上/流向 Telegram 告警（只通知不下单；需 COINGLASS_API_KEY + Telegram）---
+    coinglass_alerts_on: bool = Field(default=False, validation_alias="COINGLASS_ALERT_ENABLED")
+    coinglass_alert_interval_sec: float = Field(
+        default=600.0, ge=60.0, le=86_400.0, validation_alias="COINGLASS_ALERT_INTERVAL_SEC"
+    )
+    coinglass_alert_cooldown_sec: float = Field(
+        default=3600.0, ge=0.0, le=86_400.0, validation_alias="COINGLASS_ALERT_COOLDOWN_SEC"
+    )
+    # 24h 现货净流出超过此 USD 绝对值时告警（负 netflow）。0=关闭
+    coinglass_alert_netflow_usd: float = Field(
+        default=0.0, ge=0.0, validation_alias="COINGLASS_ALERT_NETFLOW_USD"
+    )
+    # 任一交易所 24h 储备增幅 ≥ 此 % 时告警（币流入交易所）。0=关闭
+    coinglass_alert_exchange_balance_pct_1d: float = Field(
+        default=0.0, ge=0.0, le=1000.0, validation_alias="COINGLASS_ALERT_EXCHANGE_BALANCE_PCT_1D"
+    )
+    # 链上大额转账告警阈值（USD）；CoinGlass whale-transfer 本身最小约 $10M。0=关闭
+    coinglass_alert_whale_usd: float = Field(
+        default=0.0, ge=0.0, validation_alias="COINGLASS_ALERT_WHALE_USD"
+    )
+    # 额外监控的 base 币种，逗号分隔（如 BTC,ETH）；默认还会监控候选池与当前持仓
+    coinglass_alert_extra_coins: str = Field(default="", validation_alias="COINGLASS_ALERT_EXTRA_COINS")
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
     # --- 仓位与名义金额 ---
@@ -635,6 +658,20 @@ class Settings(BaseSettings):
     def coinglass_exit_enabled(self) -> bool:
         """是否启用任一基于 CoinGlass 的离场规则。"""
         return self.exit_cg_oi_drop_pct > 0.0 or self.exit_cg_adverse_funding > 0.0
+
+    def coinglass_alert_enabled(self) -> bool:
+        """是否启用 CoinGlass 链上/流向 Telegram 告警。"""
+        if not self.coinglass_alerts_on:
+            return False
+        if not self.coinglass_enabled():
+            return False
+        if not self.telegram_notify_cg_alerts:
+            return False
+        return (
+            self.coinglass_alert_netflow_usd > 0.0
+            or self.coinglass_alert_exchange_balance_pct_1d > 0.0
+            or self.coinglass_alert_whale_usd > 0.0
+        )
 
     @field_validator("symbol", mode="before")
     @classmethod

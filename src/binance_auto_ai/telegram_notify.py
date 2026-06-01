@@ -137,3 +137,9 @@ def notify_tick_error(settings: Settings, message: str) -> None:
     _last_error_notify_monotonic = now
     text = f"⚠️ tick 异常\n{SEPARATOR}\n{message[:1500]}"
     send_telegram_message(settings, text)
+
+
+def notify_coinglass_alert(settings: Settings, text: str) -> None:
+    if not settings.telegram_notify_cg_alerts or not telegram_configured(settings):
+        return
+    send_telegram_message(settings, text)

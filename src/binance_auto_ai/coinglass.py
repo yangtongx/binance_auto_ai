@@ -1,12 +1,12 @@
-"""CoinGlass V4 衍生品数据（可选）：聚合持仓量变化、聚合资金费率，用于选币。
+"""CoinGlass V4 数据（可选）：衍生品选币 + 链上/流向告警。
 
 - base: https://open-api-v4.coinglass.com ，鉴权头 ``CG-API-KEY``。
-- 只用一个快照端点 ``/api/futures/coins-markets``（一次拿全市场每币聚合数据），按 TTL 缓存。
+- 选币：``/api/futures/coins-markets`` 聚合 OI 变化与资金费率。
+- 告警：``/api/spot/netflow-list``、``/api/exchange/balance/list``、``/api/chain/v2/whale-transfer``。
 - 全程「可选 + 失败降级」：未装 requests / key 为空 / 请求失败 / 字段缺失 → 返回空，
-  调用方（symbol_universe）会让相关维度自动掉出，不影响主流程。
+  不影响主流程。
 
-字段名按 CoinGlass 实际返回容错解析（V4 字段可能随版本调整）；解析不到会记一次 debug 日志，
-便于按你 key 的真实响应校准。
+字段名按 CoinGlass 实际返回容错解析（V4 字段可能随版本调整）；解析不到会记 debug 日志。
 """
 
 from __future__ import annotations
@@ -21,6 +21,13 @@ from binance_auto_ai.exchange_env import normalize_proxy_url, resolve_binance_pr
 logger = logging.getLogger(__name__)
 
 _COINS_MARKETS_PATH = "/api/futures/coins-markets"
+_SPOT_NETFLOW_PATH = "/api/spot/netflow-list"
+_EXCHANGE_BALANCE_PATH = "/api/exchange/balance/list"
+_WHALE_TRANSFER_PATH = "/api/chain/v2/whale-transfer"
+
+_NETFLOW_24H_KEYS = ("net_flow_usd_24h", "netFlowUsd24h", "net_flow_24h")
+_NETFLOW_1H_KEYS = ("net_flow_usd_1h", "netFlowUsd1h", "net_flow_1h")
+_NETFLOW_4H_KEYS = ("net_flow_usd_4h", "netFlowUsd4h", "net_flow_4h")
 
 # 容错字段名（按优先级）
 _SYMBOL_KEYS = ("symbol", "coin", "baseAsset", "base")
@@ -78,6 +85,14 @@ def _row_symbol(row: dict[str, Any]) -> str | None:
     return None
 
 
+def _rows_from_data(data: Any) -> list[dict[str, Any]]:
+    if isinstance(data, list):
+        return [r for r in data if isinstance(r, dict)]
+    if isinstance(data, dict) and isinstance(data.get("list"), list):
+        return [r for r in data["list"] if isinstance(r, dict)]
+    return []
+
+
 def normalize_coin_metrics(rows: list[dict[str, Any]]) -> dict[str, dict[str, float | None]]:
     """把 coins-markets 行列表归一为 ``{COIN: {oi_change_pct, funding_rate}}``（纯函数，便于测试）。"""
     out: dict[str, dict[str, float | None]] = {}
@@ -97,6 +112,89 @@ def normalize_coin_metrics(rows: list[dict[str, Any]]) -> dict[str, dict[str, fl
     return out
 
 
+def normalize_spot_netflow(rows: list[dict[str, Any]]) -> dict[str, dict[str, float | None]]:
+    """现货净流入/流出（USD）；负值=净卖出占优。"""
+    out: dict[str, dict[str, float | None]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        sym = _row_symbol(row)
+        if not sym:
+            continue
+        nf24 = _pick(row, _NETFLOW_24H_KEYS, substrs=("net", "flow", "24"))
+        nf1 = _pick(row, _NETFLOW_1H_KEYS, substrs=("net", "flow", "1h"))
+        if nf1 is None:
+            nf1 = _pick(row, (), substrs=("net", "flow", "1"))
+        nf4 = _pick(row, _NETFLOW_4H_KEYS, substrs=("net", "flow", "4"))
+        out[sym] = {"net_flow_24h_usd": nf24, "net_flow_1h_usd": nf1, "net_flow_4h_usd": nf4}
+    return out
+
+
+def normalize_exchange_balance(rows: list[dict[str, Any]]) -> list[dict[str, float | str | None]]:
+    """各交易所储备及 24h 变化；``balance_change_percent_1d`` 为正=币流入交易所。"""
+    out: list[dict[str, float | str | None]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = row.get("exchange_name") or row.get("exchangeName") or row.get("exchange")
+        if not isinstance(name, str) or not name.strip():
+            continue
+        pct = _pick(
+            row,
+            ("balance_change_percent_1d", "balanceChangePercent1d", "change_percent_1d"),
+            substrs=("change", "percent", "1d"),
+        )
+        bal_chg = _pick(
+            row,
+            ("balance_change_1d", "balanceChange1d", "change_1d"),
+            substrs=("change", "1d"),
+        )
+        total = _pick(row, ("total_balance", "totalBalance", "balance"), substrs=("total", "balance"))
+        out.append(
+            {
+                "exchange_name": name.strip(),
+                "balance_change_percent_1d": pct,
+                "balance_change_1d": bal_chg,
+                "total_balance": total,
+            }
+        )
+    return out
+
+
+def normalize_whale_transfer(row: dict[str, Any]) -> dict[str, object] | None:
+    tx = row.get("transaction_hash") or row.get("transactionHash") or row.get("hash")
+    if not isinstance(tx, str) or not tx.strip():
+        return None
+    amount = _as_float(row.get("amount_usd") or row.get("amountUsd") or row.get("amountUSD"))
+    qty = _as_float(row.get("asset_quantity") or row.get("assetQuantity"))
+    asset = row.get("asset_symbol") or row.get("assetSymbol") or row.get("symbol")
+    frm = row.get("from") or row.get("fromAddress") or row.get("from_address")
+    to = row.get("to") or row.get("toAddress") or row.get("to_address")
+    chain = row.get("blockchain_name") or row.get("blockchainName") or row.get("blockchain")
+    ts = row.get("block_timestamp") or row.get("blockTimestamp") or row.get("timestamp")
+    ts_f = _as_float(ts)
+    coin = row.get("coin") or row.get("base")
+    if isinstance(coin, str):
+        coin = coin.strip().upper()
+    else:
+        coin = None
+    if isinstance(asset, str):
+        asset = asset.strip().upper()
+    else:
+        asset = None
+    return {
+        "transaction_hash": tx.strip(),
+        "amount_usd": amount,
+        "asset_quantity": qty,
+        "asset_symbol": asset,
+        "coin": coin,
+        "from": str(frm) if frm is not None else "",
+        "to": str(to) if to is not None else "",
+        "blockchain": str(chain) if chain is not None else "",
+        "block_timestamp": int(ts_f) if ts_f is not None else None,
+    }
+
+
 class CoinglassClient:
     """轻量 CoinGlass V4 客户端（requests，懒加载；复用 BINANCE_HTTPS_PROXY 代理）。"""
 
@@ -108,6 +206,9 @@ class CoinglassClient:
         self._ttl = float(settings.coinglass_cache_ttl_sec)
         self._cache_ts = 0.0
         self._cache: dict[str, dict[str, float | None]] = {}
+        self._netflow_cache_ts = 0.0
+        self._netflow_cache: dict[str, dict[str, float | None]] = {}
+        self._balance_cache: dict[str, tuple[float, list[dict[str, float | str | None]]]] = {}
         proxy = resolve_binance_proxy(settings)
         self._proxies = None
         if proxy:
@@ -156,13 +257,7 @@ class CoinglassClient:
         if self._cache and (now - self._cache_ts) < self._ttl:
             return self._cache
         data = self._get(_COINS_MARKETS_PATH)
-        rows: list[dict[str, Any]]
-        if isinstance(data, list):
-            rows = [r for r in data if isinstance(r, dict)]
-        elif isinstance(data, dict) and isinstance(data.get("list"), list):
-            rows = [r for r in data["list"] if isinstance(r, dict)]
-        else:
-            rows = []
+        rows = _rows_from_data(data)
         if not rows:
             return self._cache  # 失败时沿用上次缓存（可能为空）
         metrics = normalize_coin_metrics(rows)
@@ -176,6 +271,66 @@ class CoinglassClient:
         self._cache = metrics
         self._cache_ts = now
         return metrics
+
+    def spot_netflow(self) -> dict[str, dict[str, float | None]]:
+        """``{COIN: {net_flow_24h_usd, net_flow_1h_usd, net_flow_4h_usd}}``。"""
+        if not self._api_key:
+            return {}
+        now = time.monotonic()
+        if self._netflow_cache and (now - self._netflow_cache_ts) < self._ttl:
+            return self._netflow_cache
+        data = self._get(_SPOT_NETFLOW_PATH, {"page": 1, "per_page": 500})
+        rows = _rows_from_data(data)
+        if not rows:
+            return self._netflow_cache
+        metrics = normalize_spot_netflow(rows)
+        self._netflow_cache = metrics
+        self._netflow_cache_ts = now
+        return metrics
+
+    def exchange_balance(self, coin: str) -> list[dict[str, float | str | None]]:
+        """某币在各交易所的储备及 24h 变化。"""
+        if not self._api_key:
+            return []
+        key = coin.strip().upper()
+        if not key:
+            return []
+        now = time.monotonic()
+        cached = self._balance_cache.get(key)
+        if cached and (now - cached[0]) < self._ttl:
+            return cached[1]
+        data = self._get(_EXCHANGE_BALANCE_PATH, {"symbol": key})
+        rows = _rows_from_data(data)
+        if not rows:
+            return cached[1] if cached else []
+        parsed = normalize_exchange_balance(rows)
+        self._balance_cache[key] = (now, parsed)
+        return parsed
+
+    def whale_transfers(
+        self,
+        coin: str,
+        *,
+        start_ms: int,
+        end_ms: int,
+    ) -> list[dict[str, object]]:
+        """某币在时间段内的大额链上转账（≥$10M，CoinGlass 口径）。"""
+        if not self._api_key:
+            return []
+        key = coin.strip().upper()
+        if not key:
+            return []
+        data = self._get(
+            _WHALE_TRANSFER_PATH,
+            {"symbol": key, "start_time": str(start_ms), "end_time": str(end_ms)},
+        )
+        rows = _rows_from_data(data)
+        out: list[dict[str, object]] = []
+        for row in rows:
+            parsed = normalize_whale_transfer(row)
+            if parsed is not None:
+                out.append(parsed)
+        return out
 
 
 def build_coinglass_client(settings: Settings) -> CoinglassClient | None:

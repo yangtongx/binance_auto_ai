@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from binance_auto_ai.coinglass import normalize_coin_metrics
+from binance_auto_ai.coinglass import normalize_coin_metrics, normalize_exchange_balance, normalize_spot_netflow
 from binance_auto_ai.config import Settings
 from binance_auto_ai.symbol_universe import select_top_usdm_candidates
 
@@ -31,6 +31,13 @@ def test_normalize_coin_metrics_substring_fallback() -> None:
     rows = [{"symbol": "DOGE", "h24OpenInterestChangePercent": 7.5, "lastFundingRateValue": 0.03}]
     out = normalize_coin_metrics(rows)
     assert out["DOGE"]["oi_change_pct"] == 7.5
+
+
+def test_normalize_spot_netflow_and_exchange_balance() -> None:
+    nf = normalize_spot_netflow([{"symbol": "BTC", "net_flow_usd_24h": -1e8}])
+    assert nf["BTC"]["net_flow_24h_usd"] == -1e8
+    bal = normalize_exchange_balance([{"exchange_name": "Binance", "balance_change_percent_1d": 1.2}])
+    assert bal[0]["balance_change_percent_1d"] == 1.2
 
 
 # --- selection integration ---

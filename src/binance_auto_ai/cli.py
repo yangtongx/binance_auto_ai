@@ -38,6 +38,7 @@ from binance_auto_ai.symbol_picker import (
     plan_signal_pick_trades,
     resolve_held_symbol,
 )
+from binance_auto_ai.coinglass_alerts import CoinglassAlertWatcher, list_held_symbols
 from binance_auto_ai.symbol_universe import CandidatePool
 from binance_auto_ai.telegram_notify import (
     notify_bot_started,
@@ -465,6 +466,17 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
         from binance_auto_ai.coinglass import build_coinglass_client
 
         coinglass_client = build_coinglass_client(settings)
+    cg_alert_watcher: CoinglassAlertWatcher | None = None
+    if settings.coinglass_alert_enabled():
+        cg_alert_watcher = CoinglassAlertWatcher()
+        logger.info(
+            "coinglass alerts enabled: interval=%ss cooldown=%ss netflow_usd=%s balance_pct=%s whale_usd=%s",
+            settings.coinglass_alert_interval_sec,
+            settings.coinglass_alert_cooldown_sec,
+            settings.coinglass_alert_netflow_usd,
+            settings.coinglass_alert_exchange_balance_pct_1d,
+            settings.coinglass_alert_whale_usd,
+        )
     candidate_pool: CandidatePool | None = None
     if settings.symbol_mode == "signal_pick":
         candidate_pool = CandidatePool(settings, coinglass=coinglass_client)
@@ -605,6 +617,19 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
                 )
             except Exception:
                 logger.exception("tick failed")
+
+            if cg_alert_watcher is not None and coinglass_client is not None:
+                try:
+                    pool_syms = candidate_pool.symbols() if candidate_pool is not None else [settings.symbol]
+                    held_syms = list_held_symbols(ex, dry_run=settings.dry_run)
+                    cg_alert_watcher.maybe_check(
+                        settings,
+                        coinglass_client,
+                        candidate_symbols=pool_syms,
+                        held_symbols=held_syms,
+                    )
+                except Exception:
+                    logger.exception("coinglass alert check failed")
 
             if once:
                 break
