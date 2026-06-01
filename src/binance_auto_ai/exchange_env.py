@@ -57,7 +57,28 @@ def configure_binance_usdm_exchange(ex: ccxt.binanceusdm) -> None:
 def load_binance_usdm_markets(ex: ccxt.binanceusdm) -> None:
     """Load futures markets without calling spot wallet SAPI (futures-only API keys)."""
     configure_binance_usdm_exchange(ex)
-    ex.load_markets()
+    try:
+        ex.load_markets()
+    except ccxt.ExchangeNotAvailable as e:
+        raise _binance_connect_error(e) from e
+
+
+def _binance_connect_error(exc: ccxt.ExchangeNotAvailable) -> SystemExit:
+    """451 / 地区限制时给出可操作的退出提示。"""
+    msg = str(exc)
+    low = msg.lower()
+    if "451" in msg or "restricted location" in low:
+        return SystemExit(
+            "Binance 451：当前出口 IP 所在地区被 Binance 拒绝（主网/模拟盘均可能触发）。\n"
+            "解决：\n"
+            "  1) 在 .env 设置 BINANCE_HTTPS_PROXY（Docker 访问宿主机 Clash：\n"
+            "     BINANCE_HTTPS_PROXY=http://host.docker.internal:7890\n"
+            "     需 docker-compose 已配置 extra_hosts: host.docker.internal:host-gateway）\n"
+            "  2) 或使用容器/服务器可直接访问的远程 HTTP/SOCKS 代理 URL\n"
+            "  3) 或将 VPS 换到 Binance 可访问地区\n"
+            f"原始错误: {msg[:500]}"
+        )
+    return SystemExit(f"无法连接 Binance USDT-M: {msg[:500]}")
 
 
 def apply_binance_usdm_environment(ex: ccxt.binanceusdm, *, testnet: bool) -> None:

@@ -54,6 +54,12 @@ services:
 
       - ./state:/app/state:Z
 
+    # 容器内通过 host.docker.internal 访问宿主机 Clash/代理（配合 BINANCE_HTTPS_PROXY）
+
+    extra_hosts:
+
+      - "host.docker.internal:host-gateway"
+
     logging:
 
       driver: json-file
