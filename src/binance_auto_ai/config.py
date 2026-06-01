@@ -223,6 +223,13 @@ class Settings(BaseSettings):
         le=1000.0,
         validation_alias="SYMBOL_CANDIDATES_MAX_ABS_CHANGE_PCT",
     )
+    # signal_pick 换币迟滞：仅当新标的方向置信度 ≥ 在手仓置信度 + 此值才换币（0=每分钟都可换，抖动大）
+    symbol_rotation_hysteresis: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        validation_alias="SYMBOL_ROTATION_HYSTERESIS",
+    )
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
     # --- 仓位与名义金额 ---
@@ -235,6 +242,16 @@ class Settings(BaseSettings):
     dry_run: bool = Field(default=True, validation_alias="DRY_RUN")  # true=只打日志不下单
 
     min_confidence: float = Field(default=0.55, ge=0.0, le=1.0, validation_alias="MIN_CONFIDENCE")
+
+    # --- 主动离场（按入场价的价格变动百分比；0=关闭。注意：杠杆 L 下对权益的影响≈pct×L）---
+    # 止损：相对入场价的不利变动达到此 %（如 2=逆向 2%）即平仓
+    exit_stop_loss_pct: float = Field(default=0.0, ge=0.0, le=100.0, validation_alias="EXIT_STOP_LOSS_PCT")
+    # 止盈：相对入场价的有利变动达到此 % 即平仓
+    exit_take_profit_pct: float = Field(default=0.0, ge=0.0, le=1000.0, validation_alias="EXIT_TAKE_PROFIT_PCT")
+    # 移动止盈：盈利曾达到该 %（armed）后，从最高浮盈回撤达到该 % 即平仓
+    exit_trailing_pct: float = Field(default=0.0, ge=0.0, le=100.0, validation_alias="EXIT_TRAILING_PCT")
+    # 持仓超时：持仓时间达到该分钟数即平仓（0=关闭）；进程重启后以再次见到该仓的时刻重新计时
+    exit_max_hold_minutes: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_MAX_HOLD_MINUTES")
 
     exchange_timeout_ms: int = Field(default=30_000, ge=1_000, validation_alias="EXCHANGE_TIMEOUT_MS")
     position_poll_interval_sec: float = Field(default=0.15, gt=0, validation_alias="POSITION_POLL_INTERVAL_SEC")
@@ -510,7 +527,8 @@ class Settings(BaseSettings):
         if not metrics:
             raise ValueError(
                 "SYMBOL_CANDIDATES_RANK_BY needs at least one of: "
-                "abs_change, change, open_interest, liquidity, quote_volume, random"
+                "abs_change, change, open_interest, liquidity, quote_volume, "
+                "momentum (trend), funding, abs_funding, random"
             )
         return ",".join(metrics)
 
@@ -561,6 +579,15 @@ class Settings(BaseSettings):
         from binance_auto_ai.symbol_universe import parse_rank_weights
 
         return parse_rank_weights(self.candidate_rank_metrics(), self.symbol_candidates_rank_weights)
+
+    def active_exit_enabled(self) -> bool:
+        """是否启用任一主动离场规则（止损/止盈/移动止盈/超时）。"""
+        return (
+            self.exit_stop_loss_pct > 0.0
+            or self.exit_take_profit_pct > 0.0
+            or self.exit_trailing_pct > 0.0
+            or self.exit_max_hold_minutes > 0.0
+        )
 
     @field_validator("symbol", mode="before")
     @classmethod

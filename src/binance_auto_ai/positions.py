@@ -105,6 +105,49 @@ def fetch_position_legs(ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool = Fa
     return PositionLegs(long_c, short_c, long_n, short_n)
 
 
+class PositionEntry(NamedTuple):
+    """净持仓的方向、入场均价与（绝对）合约数；空仓时 side=""、entry_price=0。"""
+
+    side: str  # "long" | "short" | ""
+    entry_price: float
+    contracts: float
+
+
+def fetch_position_entry(ex: ccxt.binanceusdm, symbol: str, *, dry_run: bool = False) -> PositionEntry:
+    """读取净持仓的方向与入场均价（来自交易所 ``entryPrice``），用于主动离场判断。"""
+    long_c = short_c = 0.0
+    long_ep = short_ep = 0.0
+    for p in _fetch_positions_rows(ex, symbol, dry_run=dry_run):
+        if p.get("symbol") != symbol:
+            continue
+        side = (p.get("side") or "").lower()
+        c = float(p.get("contracts") or 0)
+        raw_ep = p.get("entryPrice")
+        if raw_ep is None:
+            info = p.get("info")
+            if isinstance(info, dict):
+                raw_ep = info.get("entryPrice")
+        try:
+            ep = float(raw_ep) if raw_ep is not None else 0.0
+        except (TypeError, ValueError):
+            ep = 0.0
+        signed = signed_position_contracts(p) if not side else (c if side == "long" else -c)
+        if side == "long" or (not side and signed > LEG_POSITION_EPS_CONTRACTS):
+            long_c += abs(c)
+            if ep > 0:
+                long_ep = ep
+        elif side == "short" or (not side and signed < -LEG_POSITION_EPS_CONTRACTS):
+            short_c += abs(c)
+            if ep > 0:
+                short_ep = ep
+    net = long_c - short_c
+    if net > NET_POSITION_EPS_CONTRACTS:
+        return PositionEntry("long", long_ep, long_c)
+    if net < -NET_POSITION_EPS_CONTRACTS:
+        return PositionEntry("short", short_ep, short_c)
+    return PositionEntry("", 0.0, 0.0)
+
+
 def mark_last_usdt(ex: ccxt.binanceusdm, symbol: str) -> float:
     ticker = ex.fetch_ticker(symbol)
     last = float(ticker.get("last") or ticker.get("close") or 0)

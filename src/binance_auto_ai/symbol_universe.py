@@ -19,9 +19,34 @@ logger = logging.getLogger(__name__)
 _AUTO_CANDIDATE_TOKENS = frozenset({"auto", "top", "*"})
 _STABLE_BASES = frozenset({"USDC", "BUSD", "TUSD", "FDUSD", "DAI", "USDP", "USDT"})
 _RANK_METRICS = frozenset(
-    {"abs_change", "change", "open_interest", "quote_volume", "liquidity", "random"}
+    {
+        "abs_change",
+        "change",
+        "open_interest",
+        "quote_volume",
+        "liquidity",
+        "random",
+        # 趋势/动量（与交易策略对齐，需逐币拉 OHLCV，见 _MOMENTUM_*）
+        "momentum",
+        # 资金费率（永续拥挤度，需 fetch_funding_rates）
+        "funding",
+        "abs_funding",
+    }
 )
-_METRIC_ALIASES = {"volume": "quote_volume", "liquidity": "quote_volume"}
+_METRIC_ALIASES = {
+    "volume": "quote_volume",
+    "liquidity": "quote_volume",
+    "trend": "momentum",
+    "funding_rate": "funding",
+    "abs_funding_rate": "abs_funding",
+}
+# 需要逐币 OHLCV 才能算的指标（两段式：先按流动性短名单，再对短名单拉 K 线）
+_OHLCV_RANK_METRICS = frozenset({"momentum"})
+# 需要 fetch_funding_rates 的指标
+_FUNDING_RANK_METRICS = frozenset({"funding", "abs_funding"})
+# momentum 短名单大小（避免对全市场逐币拉 OHLCV）：max(count * 倍数, 下限)
+_MOMENTUM_SHORTLIST_MULT = 5
+_MOMENTUM_SHORTLIST_MIN = 30
 # 自动扫描结果少于 2 个交易对时的回退列表（API/行情缺口、过滤过严）
 _FALLBACK_CANDIDATES = (
     "DOGE/USDT:USDT",
@@ -197,6 +222,32 @@ def _minmax_normalize(values: list[float]) -> list[float]:
     return [(v - lo) / (hi - lo) for v in values]
 
 
+def _rank_normalize(values: list[float]) -> list[float]:
+    """分数排名百分位归一到 [0,1]（抗极值：单个超大值不会把其余压到≈0）。
+
+    并列取平均名次；全相等返回 0.5。比 min-max 更稳健，因为只看相对次序、不看绝对差距。
+    """
+    n = len(values)
+    if n == 0:
+        return []
+    if n == 1:
+        return [0.5]
+    order = sorted(range(n), key=lambda i: values[i])
+    avg_rank = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and values[order[j + 1]] == values[order[i]]:
+            j += 1
+        # i..j 为并列区间，取平均名次
+        mean_pos = (i + j) / 2.0
+        for k in range(i, j + 1):
+            avg_rank[order[k]] = mean_pos
+        i = j + 1
+    denom = float(n - 1)
+    return [r / denom for r in avg_rank]
+
+
 def _resolve_active_metrics(
     requested: list[str],
     weights: list[float],
@@ -256,6 +307,103 @@ def _fallback_candidates(
     return out
 
 
+def _momentum_strength(ohlcv: list[list[float]], *, fast: int, slow: int) -> float | None:
+    """趋势强度 = |SMA_fast - SMA_slow| / last，与 SMA 交叉策略同向（取绝对值=方向无关的强度）。"""
+    if slow < 2 or fast < 1 or fast >= slow:
+        return None
+    closes: list[float] = []
+    for row in ohlcv:
+        if not row or len(row) < 5:
+            continue
+        try:
+            closes.append(float(row[4]))
+        except (TypeError, ValueError):
+            continue
+    if len(closes) < slow + 1:
+        return None
+    last = closes[-1]
+    if last <= 0:
+        return None
+    sma_fast = sum(closes[-fast:]) / float(fast)
+    sma_slow = sum(closes[-slow:]) / float(slow)
+    strength = abs(sma_fast - sma_slow) / last
+    return strength if strength >= 0 else None
+
+
+def _attach_momentum_scores(
+    ex: ccxt.binanceusdm,
+    settings: Settings,
+    passed: list[tuple[str, dict[str, Any], float, dict[str, float]]],
+    *,
+    count: int,
+) -> set[str]:
+    """对流动性短名单逐币拉 OHLCV 计算 momentum，写回 metric_values；返回入选短名单的符号集合。
+
+    两段式：先按 24h 成交额排序取 top-N（N=max(count*5,30)），只对短名单拉 K 线，
+    避免对全市场（数百个永续）逐币请求。返回的集合用于把最终排序范围收敛到短名单。
+    """
+    fast = int(settings.strategy_fast)
+    slow = int(settings.strategy_slow)
+    if fast >= slow:
+        fast = max(1, slow // 3)
+    shortlist_n = min(len(passed), max(count * _MOMENTUM_SHORTLIST_MULT, _MOMENTUM_SHORTLIST_MIN))
+    ranked = sorted(
+        passed,
+        key=lambda row: _ticker_quote_volume_usdt(row[1]),
+        reverse=True,
+    )
+    shortlist = ranked[:shortlist_n]
+    limit = max(slow * 2, slow + 5, 60)
+    in_shortlist: set[str] = set()
+    for sym, _ticker, _last, metric_values in shortlist:
+        in_shortlist.add(sym)
+        try:
+            ohlcv = ex.fetch_ohlcv(sym, timeframe=settings.timeframe, limit=limit)
+        except Exception as e:  # noqa: BLE001 - 单个币拉取失败不应中断整池
+            logger.debug("momentum ohlcv fetch failed for %s: %s", sym, e)
+            continue
+        score = _momentum_strength(ohlcv, fast=fast, slow=slow)
+        if score is not None:
+            metric_values["momentum"] = score
+    return in_shortlist
+
+
+def _attach_funding_scores(
+    ex: ccxt.binanceusdm,
+    passed: list[tuple[str, dict[str, Any], float, dict[str, float]]],
+    *,
+    want_funding: bool,
+    want_abs_funding: bool,
+) -> None:
+    """通过 fetch_funding_rates 一次性拉资金费率，写回 funding/abs_funding；失败则跳过（指标自动降级）。"""
+    if not (want_funding or want_abs_funding):
+        return
+    try:
+        rates = ex.fetch_funding_rates()
+    except Exception as e:  # noqa: BLE001 - 资金费率不可用时优雅降级
+        logger.warning("fetch_funding_rates failed (%s); funding metric skipped", e)
+        return
+    if not isinstance(rates, dict):
+        return
+    for sym, _ticker, _last, metric_values in passed:
+        row = rates.get(sym)
+        if not isinstance(row, dict):
+            continue
+        raw = row.get("fundingRate")
+        if raw is None:
+            info = row.get("info")
+            if isinstance(info, dict):
+                raw = info.get("fundingRate") or info.get("lastFundingRate")
+        try:
+            rate = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if want_funding:
+            metric_values["funding"] = rate
+        if want_abs_funding:
+            metric_values["abs_funding"] = abs(rate)
+
+
 def select_top_usdm_candidates(
     ex: ccxt.binanceusdm,
     settings: Settings,
@@ -288,8 +436,11 @@ def select_top_usdm_candidates(
     min_vol = float(settings.symbol_candidates_min_quote_volume_usdt)
     max_abs_change = float(settings.symbol_candidates_max_abs_change_pct)
     refresh_seed = time.strftime("%Y-%m-%d-%H", time.gmtime())
-    eligible: list[tuple[str, dict[str, float]]] = []
     skipped_pump: list[tuple[str, float]] = []
+    # 仅用 ticker 即可算的指标在主循环里算；momentum/funding 需额外请求，循环后再补
+    ticker_metrics = [m for m in metrics if m not in _OHLCV_RANK_METRICS and m not in _FUNDING_RANK_METRICS]
+    # (sym, ticker, last, metric_values)
+    passed: list[tuple[str, dict[str, Any], float, dict[str, float]]] = []
 
     for sym, market in ex.markets.items():
         if sym in exclude:
@@ -330,12 +481,34 @@ def select_top_usdm_candidates(
                 )
                 continue
         metric_values: dict[str, float] = {}
-        for metric in metrics:
+        for metric in ticker_metrics:
             score = _rank_score(metric, symbol=sym, ticker=ticker, last=last_f, refresh_seed=refresh_seed)
             if score is not None:
                 metric_values[metric] = score
-        if metric_values:
-            eligible.append((sym, metric_values))
+        passed.append((sym, ticker, last_f, metric_values))
+
+    # 资金费率维度（一次性拉取，写回各币 metric_values）
+    _attach_funding_scores(
+        ex,
+        passed,
+        want_funding="funding" in metrics,
+        want_abs_funding="abs_funding" in metrics,
+    )
+
+    # 趋势/动量维度：两段式（流动性短名单 → 逐币 OHLCV）；命中短名单后把最终排序范围收敛到短名单
+    momentum_shortlist: set[str] | None = None
+    if any(m in _OHLCV_RANK_METRICS for m in metrics) and passed:
+        momentum_shortlist = _attach_momentum_scores(
+            ex, settings, passed, count=int(settings.symbol_candidates_count)
+        )
+
+    eligible: list[tuple[str, dict[str, float]]] = []
+    for sym, _ticker, _last, metric_values in passed:
+        if not metric_values:
+            continue
+        if momentum_shortlist is not None and sym not in momentum_shortlist:
+            continue
+        eligible.append((sym, metric_values))
 
     active_metrics, active_weights = _resolve_active_metrics(metrics, weights, eligible)
     if not active_metrics:
@@ -353,9 +526,10 @@ def select_top_usdm_candidates(
 
     norm_by_metric: dict[str, dict[str, float]] = {}
     for metric in active_metrics:
-        vals = [mv[metric] for _sym, mv in eligible]
-        norms = _minmax_normalize(vals)
-        norm_by_metric[metric] = {sym: norms[i] for i, (sym, _mv) in enumerate(eligible)}
+        # 只对拥有该指标的币归一，避免缺值币被当成 0 拉低/顶高分布
+        present = [(sym, mv[metric]) for sym, mv in eligible if metric in mv]
+        norms = _rank_normalize([v for _sym, v in present])
+        norm_by_metric[metric] = {sym: norms[i] for i, (sym, _v) in enumerate(present)}
 
     rows: list[tuple[float, str]] = []
     for sym, metric_values in eligible:

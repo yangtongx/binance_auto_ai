@@ -163,12 +163,17 @@ def plan_signal_pick_trades(
     held_symbol: str | None,
     held_outside_whitelist: bool,
     min_confidence: float,
+    rotation_hysteresis: float = 0.0,
 ) -> list[TickTradeStep]:
     """
     单仓策略：
     - 换币或显式 FLAT 时先平掉当前持仓；
     - 空仓时只开候选池里置信度最高的 long/short；
     - 持仓币仅 hold 且无更优标的时不操作。
+
+    ``rotation_hysteresis``：换币迟滞。仅当新标的置信度 ≥ 在手仓置信度 + 该值时才换币，
+    否则保持在手方向仓，降低 1m 噪声下的频繁换手（每次换币=平+开两笔，手续费/滑点很贵）。
+    在手仓已不再是有效方向信号（hold/低于 min_confidence）时不受迟滞约束，可直接换到最优标的。
     """
     if held_outside_whitelist and held_symbol:
         return [TickTradeStep(held_symbol, _flat_signal(reason="signal_pick: flat non-whitelist position"))]
@@ -182,16 +187,18 @@ def plan_signal_pick_trades(
         )
         if held_sig.action == Action.FLAT:
             return [TickTradeStep(held_symbol, held_sig)]
-        if best is not None and best.symbol != held_symbol:
-            return [
-                TickTradeStep(held_symbol, _flat_signal(reason=f"signal_pick: rotate to {best.symbol}")),
-                TickTradeStep(best.symbol, best.signal),
-            ]
         if best is not None and best.symbol == held_symbol:
             return [TickTradeStep(held_symbol, best.signal)]
-        if held_sig.action in (Action.LONG, Action.SHORT) and _directional_score(
-            held_sig, min_confidence=min_confidence
-        ) is not None:
+        held_score = _directional_score(held_sig, min_confidence=min_confidence)
+        if best is not None and best.symbol != held_symbol:
+            # 在手仍是有效方向信号时，新标的需明显更强（超出迟滞带）才换币
+            if held_score is None or best.score >= held_score + rotation_hysteresis:
+                return [
+                    TickTradeStep(held_symbol, _flat_signal(reason=f"signal_pick: rotate to {best.symbol}")),
+                    TickTradeStep(best.symbol, best.signal),
+                ]
+            return [TickTradeStep(held_symbol, held_sig)]
+        if held_score is not None:
             return [TickTradeStep(held_symbol, held_sig)]
         return []
 

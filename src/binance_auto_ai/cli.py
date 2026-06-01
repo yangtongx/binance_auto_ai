@@ -20,6 +20,7 @@ from binance_auto_ai.binance_usdm import (
     resolve_account_hedged,
     verify_position_mode_alignment,
 )
+from binance_auto_ai.active_exit import ExitTracker, held_exit_signal
 from binance_auto_ai.backtest.engine import Strategy
 from binance_auto_ai.config import Settings
 from binance_auto_ai import dashboard_state, metrics
@@ -193,6 +194,38 @@ def _run_trade_step(
     return True
 
 
+def _maybe_exit_held(
+    ex,
+    settings: Settings,
+    *,
+    symbol: str,
+    account_hedged: bool,
+    equity: float | None,
+    available_margin: float | None,
+    session: SessionRisk,
+    exit_tracker: ExitTracker | None,
+) -> bool:
+    """主动离场：触发任一止损/止盈/移动止盈/超时则强制 FLAT，返回 True 表示本轮已离场。"""
+    if exit_tracker is None:
+        return False
+    forced = held_exit_signal(ex, settings, symbol, exit_tracker)
+    if forced is None:
+        return False
+    logger.info("active exit %s: %s", symbol, forced.reason)
+    _run_trade_step(
+        ex,
+        settings,
+        forced,
+        symbol=symbol,
+        account_hedged=account_hedged,
+        equity=equity,
+        available_margin=available_margin,
+        session=session,
+        src="exit",
+    )
+    return True
+
+
 def _tick_signal_pick(
     ex,
     settings: Settings,
@@ -201,12 +234,27 @@ def _tick_signal_pick(
     session: SessionRisk,
     rule_strategy: Strategy,
     candidate_pool: CandidatePool,
+    exit_tracker: ExitTracker | None = None,
 ) -> None:
     """多币候选池模式：扫描信号 → 选最强 → 规划平仓/换币/开仓步骤并执行。"""
     candidates = candidate_pool.symbols()
     need = _ohlcv_fetch_limit(settings)
     signals = evaluate_candidate_signals(ex, settings, rule_strategy, candidates, ohlcv_limit=need)
     held, held_in_whitelist = resolve_held_symbol(ex, candidates, dry_run=settings.dry_run)
+    if exit_tracker is not None and held is not None and held_in_whitelist:
+        equity, available_margin = fetch_futures_usdt_balance(ex)
+        session.on_tick(current_usdt_equity=equity)
+        if _maybe_exit_held(
+            ex,
+            settings,
+            symbol=held,
+            account_hedged=account_hedged,
+            equity=equity,
+            available_margin=available_margin,
+            session=session,
+            exit_tracker=exit_tracker,
+        ):
+            return
     pick = pick_best_directional(
         signals, candidates_order=candidates, min_confidence=settings.min_confidence
     )
@@ -221,6 +269,7 @@ def _tick_signal_pick(
         held_symbol=held,
         held_outside_whitelist=held is not None and not held_in_whitelist,
         min_confidence=settings.min_confidence,
+        rotation_hysteresis=settings.symbol_rotation_hysteresis,
     )
     if not steps:
         logger.info("signal_pick: no trade steps this tick")
@@ -263,6 +312,7 @@ def _tick(
     rule_strategy: Strategy | None,
     ws_buffer: BinanceUsdMKlineBuffer | None = None,
     candidate_pool: CandidatePool | None = None,
+    exit_tracker: ExitTracker | None = None,
 ) -> None:
     """单次 tick：signal_pick 或单币 LLM/规则策略，最后刷新面板状态。"""
     metrics.record_tick_attempt()
@@ -279,12 +329,26 @@ def _tick(
                 session=session,
                 rule_strategy=rule_strategy,
                 candidate_pool=candidate_pool,
+                exit_tracker=exit_tracker,
             )
             return
 
         equity, available_margin = fetch_futures_usdt_balance(ex)
         session.on_tick(current_usdt_equity=equity)
         session.warn_if_drawdown_near_limit(current_equity=equity)
+        # 主动离场优先于策略信号：触发即强制平仓并跳过本轮策略
+        if _maybe_exit_held(
+            ex,
+            settings,
+            symbol=settings.symbol,
+            account_hedged=account_hedged,
+            equity=equity,
+            available_margin=available_margin,
+            session=session,
+            exit_tracker=exit_tracker,
+        ):
+            metrics.record_tick_completed()
+            return
         if rule_strategy is not None:
             need = _ohlcv_fetch_limit(settings)
             if ws_buffer is not None:
@@ -405,6 +469,15 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
         raise SystemExit(str(e)) from e
     logger.info("position mode: %s (account_hedged=%s)", settings.position_mode, account_hedged)
     session = SessionRisk(settings)
+    exit_tracker = ExitTracker() if settings.active_exit_enabled() else None
+    if exit_tracker is not None:
+        logger.info(
+            "active exit enabled: stop_loss=%s%% take_profit=%s%% trailing=%s%% max_hold=%smin",
+            settings.exit_stop_loss_pct,
+            settings.exit_take_profit_pct,
+            settings.exit_trailing_pct,
+            settings.exit_max_hold_minutes,
+        )
     boot_syms = candidate_pool.symbols() if candidate_pool is not None else None
     dashboard_state.set_boot_config(settings, candidate_symbols=boot_syms)
     dashboard_state.append_event("bot started")
@@ -511,6 +584,7 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
                     rule_strategy=rule_strategy,
                     ws_buffer=ws_buffer,
                     candidate_pool=candidate_pool,
+                    exit_tracker=exit_tracker,
                 )
             except Exception:
                 logger.exception("tick failed")

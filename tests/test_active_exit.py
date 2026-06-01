@@ -1,0 +1,153 @@
+"""Tests for active-exit rules (stop-loss / take-profit / trailing / time-stop)."""
+
+from __future__ import annotations
+
+from binance_auto_ai.active_exit import ExitTracker, held_exit_signal, pnl_pct_from_entry
+from binance_auto_ai.config import Settings
+from binance_auto_ai.positions import fetch_position_entry
+from binance_auto_ai.schemas import Action
+
+
+def _settings(**kw: object) -> Settings:
+    base = dict(
+        exit_stop_loss_pct=0.0,
+        exit_take_profit_pct=0.0,
+        exit_trailing_pct=0.0,
+        exit_max_hold_minutes=0.0,
+        dry_run=False,
+    )
+    base.update(kw)
+    return Settings.model_construct(**base)
+
+
+def test_pnl_pct_from_entry() -> None:
+    assert pnl_pct_from_entry("long", entry_price=100.0, mark=102.0) == 2.0
+    assert pnl_pct_from_entry("short", entry_price=100.0, mark=98.0) == 2.0
+    assert pnl_pct_from_entry("long", entry_price=100.0, mark=95.0) == -5.0
+    assert pnl_pct_from_entry("", entry_price=100.0, mark=100.0) is None
+    assert pnl_pct_from_entry("long", entry_price=0.0, mark=100.0) is None
+
+
+def test_stop_loss_triggers() -> None:
+    s = _settings(exit_stop_loss_pct=2.0)
+    t = ExitTracker()
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=99.0, settings=s).should_exit is False
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=98.0, settings=s).should_exit is True
+
+
+def test_stop_loss_short_side() -> None:
+    s = _settings(exit_stop_loss_pct=2.0)
+    t = ExitTracker()
+    # short loses when price rises
+    assert t.update_and_check("X", side="short", entry_price=100.0, mark=102.5, settings=s).should_exit is True
+
+
+def test_take_profit_triggers() -> None:
+    s = _settings(exit_take_profit_pct=3.0)
+    t = ExitTracker()
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=102.0, settings=s).should_exit is False
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=103.0, settings=s).should_exit is True
+
+
+def test_trailing_arms_then_triggers_on_retrace() -> None:
+    s = _settings(exit_trailing_pct=2.0)
+    t = ExitTracker()
+    # not armed yet (peak < 2%)
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=100.0, settings=s).should_exit is False
+    # peak rises to +5% (armed), no retrace yet
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=105.0, settings=s).should_exit is False
+    # retrace from peak 5% down to 3% => drop 2% >= 2% => exit
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=103.0, settings=s).should_exit is True
+
+
+def test_trailing_not_triggered_before_armed() -> None:
+    s = _settings(exit_trailing_pct=5.0)
+    t = ExitTracker()
+    # peak only +1% then drop to -1%: not armed (peak < 5%) -> no trailing exit
+    t.update_and_check("X", side="long", entry_price=100.0, mark=101.0, settings=s)
+    assert t.update_and_check("X", side="long", entry_price=100.0, mark=99.0, settings=s).should_exit is False
+
+
+def test_max_hold_time_stop() -> None:
+    s = _settings(exit_max_hold_minutes=1.0)
+    t = ExitTracker()
+    assert t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=100.0, settings=s, now_ts=1000.0
+    ).should_exit is False
+    assert t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=100.0, settings=s, now_ts=1061.0
+    ).should_exit is True
+
+
+def test_new_position_resets_timer_and_peak() -> None:
+    s = _settings(exit_max_hold_minutes=1.0)
+    t = ExitTracker()
+    t.update_and_check("X", side="long", entry_price=100.0, mark=100.0, settings=s, now_ts=1000.0)
+    # flip to short (new position) far in the future -> timer restarts, no time-stop
+    assert t.update_and_check(
+        "X", side="short", entry_price=100.0, mark=100.0, settings=s, now_ts=99999.0
+    ).should_exit is False
+
+
+def test_flat_forgets_state() -> None:
+    s = _settings(exit_stop_loss_pct=2.0)
+    t = ExitTracker()
+    t.update_and_check("X", side="long", entry_price=100.0, mark=105.0, settings=s)
+    d = t.update_and_check("X", side="", entry_price=0.0, mark=0.0, settings=s)
+    assert d.should_exit is False
+    assert "X" not in t._state
+
+
+# --- position entry parsing + end-to-end held_exit_signal ---
+
+
+class _FakeExitEx:
+    def __init__(self, positions: list[dict], last: float) -> None:
+        self._positions = positions
+        self._last = last
+
+    def fetch_positions(self, symbols: list[str] | None = None) -> list[dict]:
+        return self._positions
+
+    def fetch_ticker(self, symbol: str) -> dict:
+        return {"last": self._last}
+
+
+def test_fetch_position_entry_long() -> None:
+    ex = _FakeExitEx(
+        [{"symbol": "BTC/USDT:USDT", "side": "long", "contracts": 2.0, "entryPrice": 100.0}],
+        last=100.0,
+    )
+    e = fetch_position_entry(ex, "BTC/USDT:USDT")  # type: ignore[arg-type]
+    assert e.side == "long"
+    assert e.entry_price == 100.0
+    assert e.contracts == 2.0
+
+
+def test_fetch_position_entry_flat() -> None:
+    ex = _FakeExitEx([], last=100.0)
+    e = fetch_position_entry(ex, "BTC/USDT:USDT")  # type: ignore[arg-type]
+    assert e.side == ""
+
+
+def test_held_exit_signal_stop_loss_flat() -> None:
+    s = _settings(exit_stop_loss_pct=2.0)
+    t = ExitTracker()
+    ex = _FakeExitEx(
+        [{"symbol": "BTC/USDT:USDT", "side": "long", "contracts": 1.0, "entryPrice": 100.0}],
+        last=97.0,  # -3% on a long
+    )
+    sig = held_exit_signal(ex, s, "BTC/USDT:USDT", t)  # type: ignore[arg-type]
+    assert sig is not None
+    assert sig.action == Action.FLAT
+    assert "active_exit" in sig.reason
+
+
+def test_held_exit_signal_none_when_within_bounds() -> None:
+    s = _settings(exit_stop_loss_pct=5.0, exit_take_profit_pct=5.0)
+    t = ExitTracker()
+    ex = _FakeExitEx(
+        [{"symbol": "BTC/USDT:USDT", "side": "long", "contracts": 1.0, "entryPrice": 100.0}],
+        last=101.0,
+    )
+    assert held_exit_signal(ex, s, "BTC/USDT:USDT", t) is None  # type: ignore[arg-type]
