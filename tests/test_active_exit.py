@@ -14,6 +14,10 @@ def _settings(**kw: object) -> Settings:
         exit_take_profit_pct=0.0,
         exit_trailing_pct=0.0,
         exit_max_hold_minutes=0.0,
+        exit_take_profit_roe_pct=0.0,
+        exit_stop_loss_roe_pct=0.0,
+        leverage=1.0,
+        leverage_mode="fixed",
         dry_run=False,
     )
     base.update(kw)
@@ -77,6 +81,35 @@ def test_max_hold_time_stop() -> None:
     assert t.update_and_check(
         "X", side="long", entry_price=100.0, mark=100.0, settings=s, now_ts=1061.0
     ).should_exit is True
+
+
+def test_take_profit_roe_triggers_at_full_margin() -> None:
+    # ROE = price move % × leverage. With lev=50, +2% price = +100% ROE = profit equals margin.
+    s = _settings(exit_take_profit_roe_pct=100.0)
+    t = ExitTracker()
+    assert t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=101.5, settings=s, leverage=50.0
+    ).should_exit is False  # +1.5% × 50 = 75% ROE
+    d = t.update_and_check("X", side="long", entry_price=100.0, mark=102.0, settings=s, leverage=50.0)
+    assert d.should_exit is True  # +2% × 50 = 100% ROE
+    assert "take_profit_roe" in d.reason
+
+
+def test_stop_loss_roe_triggers() -> None:
+    s = _settings(exit_stop_loss_roe_pct=80.0)
+    t = ExitTracker()
+    # short, price up 2% with lev 50 => -100% ROE <= -80% => exit
+    assert t.update_and_check(
+        "X", side="short", entry_price=100.0, mark=102.0, settings=s, leverage=50.0
+    ).should_exit is True
+
+
+def test_roe_disabled_when_zero() -> None:
+    s = _settings(exit_take_profit_roe_pct=0.0, exit_stop_loss_roe_pct=0.0)
+    t = ExitTracker()
+    assert t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=130.0, settings=s, leverage=125.0
+    ).should_exit is False
 
 
 def test_new_position_resets_timer_and_peak() -> None:

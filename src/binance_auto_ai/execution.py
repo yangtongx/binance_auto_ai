@@ -12,6 +12,7 @@ from binance_auto_ai.exchange_env import (
     apply_binance_usdm_environment,
     apply_ccxt_proxy_config,
     configure_binance_usdm_exchange,
+    effective_leverage,
 )
 from binance_auto_ai.execution_hedge import execute_hedged
 from binance_auto_ai.execution_oneway import execute_oneway
@@ -104,6 +105,10 @@ def execute_signal(
 
     active_settings = settings.model_copy(update={"symbol": symbol}) if symbol else settings
     symbol = active_settings.symbol
+    # LEVERAGE_MODE=max：把该币的最大杠杆解析为固定值，供仓位计算（与交易所所设杠杆一致）
+    if active_settings.leverage_mode == "max":
+        eff_lev = effective_leverage(ex, active_settings, symbol)
+        active_settings = active_settings.model_copy(update={"leverage": eff_lev})
     legs = fetch_position_legs(ex, symbol, dry_run=active_settings.dry_run)
     last = mark_last_usdt(ex, symbol)
 

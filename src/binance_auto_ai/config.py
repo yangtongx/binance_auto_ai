@@ -196,7 +196,7 @@ class Settings(BaseSettings):
         validation_alias="SYMBOL_CANDIDATES_MIN_QUOTE_VOLUME_USDT",
     )
     symbol_candidates_exclude: str = Field(
-        default="BTC/USDT:USDT,ETH/USDT:USDT",
+        default="",
         validation_alias="SYMBOL_CANDIDATES_EXCLUDE",
     )
     symbol_candidates_refresh_hours: float = Field(
@@ -239,6 +239,8 @@ class Settings(BaseSettings):
     # available_margin_leverage：可用保证金 × LEVERAGE × size_pct（实盘常用）
     position_sizing: str = Field(default="fixed", validation_alias="POSITION_SIZING")
     leverage: float = Field(default=1.0, ge=1.0, le=150.0, validation_alias="LEVERAGE")
+    # fixed=用 LEVERAGE；max=用「该下单币交易所允许的最大杠杆」（LEVERAGE 作为取不到时的回退）
+    leverage_mode: str = Field(default="fixed", validation_alias="LEVERAGE_MODE")
     dry_run: bool = Field(default=True, validation_alias="DRY_RUN")  # true=只打日志不下单
 
     min_confidence: float = Field(default=0.55, ge=0.0, le=1.0, validation_alias="MIN_CONFIDENCE")
@@ -252,6 +254,11 @@ class Settings(BaseSettings):
     exit_trailing_pct: float = Field(default=0.0, ge=0.0, le=100.0, validation_alias="EXIT_TRAILING_PCT")
     # 持仓超时：持仓时间达到该分钟数即平仓（0=关闭）；进程重启后以再次见到该仓的时刻重新计时
     exit_max_hold_minutes: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_MAX_HOLD_MINUTES")
+    # 按「回报率 ROE = 收益/保证金 = 价格变动% × 杠杆」离场（0=关闭）。
+    # 止盈：ROE 达到该 % 即平仓（100 = 浮盈达到该仓保证金的 100%）
+    exit_take_profit_roe_pct: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_TAKE_PROFIT_ROE_PCT")
+    # 止损：ROE 跌到 -该 % 即平仓（如 80 = 亏掉 80% 保证金）
+    exit_stop_loss_roe_pct: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_STOP_LOSS_ROE_PCT")
 
     exchange_timeout_ms: int = Field(default=30_000, ge=1_000, validation_alias="EXCHANGE_TIMEOUT_MS")
     position_poll_interval_sec: float = Field(default=0.15, gt=0, validation_alias="POSITION_POLL_INTERVAL_SEC")
@@ -511,6 +518,18 @@ class Settings(BaseSettings):
             )
         return v
 
+    @field_validator("leverage_mode", mode="before")
+    @classmethod
+    def _normalize_leverage_mode(cls, v: object) -> str:
+        return str(v).strip().lower()
+
+    @field_validator("leverage_mode")
+    @classmethod
+    def _validate_leverage_mode(cls, v: str) -> str:
+        if v not in ("fixed", "max"):
+            raise ValueError("LEVERAGE_MODE must be fixed|max")
+        return v
+
     @field_validator("symbol_mode")
     @classmethod
     def _validate_symbol_mode(cls, v: str) -> str:
@@ -587,6 +606,8 @@ class Settings(BaseSettings):
             or self.exit_take_profit_pct > 0.0
             or self.exit_trailing_pct > 0.0
             or self.exit_max_hold_minutes > 0.0
+            or self.exit_take_profit_roe_pct > 0.0
+            or self.exit_stop_loss_roe_pct > 0.0
         )
 
     @field_validator("symbol", mode="before")

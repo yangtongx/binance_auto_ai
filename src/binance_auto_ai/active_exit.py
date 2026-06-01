@@ -19,6 +19,7 @@ from dataclasses import dataclass
 import ccxt
 
 from binance_auto_ai.config import Settings
+from binance_auto_ai.exchange_env import effective_leverage
 from binance_auto_ai.positions import fetch_position_entry, mark_last_usdt
 from binance_auto_ai.schemas import Action, LLMSignal
 
@@ -75,9 +76,14 @@ class ExitTracker:
         entry_price: float,
         mark: float,
         settings: Settings,
+        leverage: float = 1.0,
         now_ts: float | None = None,
     ) -> ExitDecision:
-        """更新该仓状态并判断是否触发离场。side 为空（平仓）时清除状态并返回不离场。"""
+        """更新该仓状态并判断是否触发离场。side 为空（平仓）时清除状态并返回不离场。
+
+        ``leverage`` 用于把价格变动 % 换算为 **回报率 ROE = 价格变动% × 杠杆 = 收益/保证金**，
+        供 ``EXIT_*_ROE_PCT`` 判断（如 ROE≥100 表示浮盈达到该仓保证金的 100%）。
+        """
         now = time.time() if now_ts is None else now_ts
         pnl = pnl_pct_from_entry(side, entry_price=entry_price, mark=mark)
         if pnl is None:
@@ -91,13 +97,24 @@ class ExitTracker:
         else:
             st.peak_pnl_pct = max(st.peak_pnl_pct, pnl)
 
+        lev = leverage if leverage and leverage > 0 else 1.0
+        roe = pnl * lev
+
         sl = settings.exit_stop_loss_pct
         if sl > 0.0 and pnl <= -sl:
             return ExitDecision(True, f"stop_loss pnl={pnl:.2f}% <= -{sl:.2f}%")
 
+        sl_roe = settings.exit_stop_loss_roe_pct
+        if sl_roe > 0.0 and roe <= -sl_roe:
+            return ExitDecision(True, f"stop_loss_roe roe={roe:.1f}% (pnl={pnl:.2f}%×{lev:.0f}) <= -{sl_roe:.1f}%")
+
         tp = settings.exit_take_profit_pct
         if tp > 0.0 and pnl >= tp:
             return ExitDecision(True, f"take_profit pnl={pnl:.2f}% >= {tp:.2f}%")
+
+        tp_roe = settings.exit_take_profit_roe_pct
+        if tp_roe > 0.0 and roe >= tp_roe:
+            return ExitDecision(True, f"take_profit_roe roe={roe:.1f}% (pnl={pnl:.2f}%×{lev:.0f}) >= {tp_roe:.1f}%")
 
         trail = settings.exit_trailing_pct
         if trail > 0.0 and st.peak_pnl_pct >= trail and (st.peak_pnl_pct - pnl) >= trail:
@@ -135,12 +152,20 @@ def held_exit_signal(
     except Exception as e:  # noqa: BLE001 - 行情异常不应触发误平
         logger.debug("active exit: mark price unavailable for %s (%s)", symbol, e)
         return None
+    lev = 1.0
+    if settings.exit_take_profit_roe_pct > 0.0 or settings.exit_stop_loss_roe_pct > 0.0:
+        try:
+            lev = effective_leverage(ex, settings, symbol)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("active exit: leverage lookup failed for %s (%s); using 1x", symbol, e)
+            lev = settings.leverage
     decision = tracker.update_and_check(
         symbol,
         side=entry.side,
         entry_price=entry.entry_price,
         mark=mark,
         settings=settings,
+        leverage=lev,
     )
     if not decision.should_exit:
         return None

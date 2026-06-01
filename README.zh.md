@@ -29,6 +29,8 @@
 | **高阶规则** | **`composite`**（组合投票）、**`rsi_adaptive`**（波动率调节 RSI 阈值）、**`rl_sb3`**（Stable-Baselines3 策略，需 **`.[rl]`**） |
 | **RL 训练** | `examples/train_rl_sb3.py`：**Gymnasium** 环境、多种 **奖励**（`pnl` / `pnl_cost` / `risk_adjusted`）、**PPO** 与可调 **超参数** |
 | **VaR 验证** | **`binance-auto-var-validate`**：滚动历史 VaR 与实现对数收益对比，**Kupiec** 覆盖率检验（`--csv` 或 `--fetch`） |
+| **选币（可选）** | **`SYMBOL_MODE=signal_pick`**：从币安全市场自动筛 USDT 永续候选池并按 **流动性 / OI / 涨跌幅 / `momentum` 趋势 / `funding` 资金费率** 复合排名（**rank 百分位**归一化，抗极值）；每分钟只持一仓，**`SYMBOL_ROTATION_HYSTERESIS`** 换币迟滞降低换手 |
+| **主动离场（可选）** | 与策略无关的保护性平仓：**`EXIT_STOP_LOSS_PCT` / `EXIT_TAKE_PROFIT_PCT` / `EXIT_TRAILING_PCT` / `EXIT_MAX_HOLD_MINUTES`**（默认全关）|
 | **风控** | `MIN_CONFIDENCE`、名义上限 `MAX_NOTIONAL_USDT`、UTC **日交易 / 日亏损**；可选 **`RISK_VAR_*`** 闸与 **`RISK_CORR_*`** 相关性日志（**`cli`**） |
 | **会话状态** | JSON `STATE_FILE`，跨进程用 `filelock` |
 | **回测** | CSV 或 CCXT 拉取；按 Bar **收盘价** 近似成交 + `fee_bps`；**不含** 完整资金费/保证金/强平等仿真 |
@@ -43,8 +45,9 @@
 1. **`cli.run_loop`** 在默认 **1 分钟** 周期边界触发（`--once` 则只跑一轮）。
 2. **Tick** 读取 **USDT 权益**、**持仓**。**K 线** 默认 `fetch_ohlcv`；若 **`USE_WEBSOCKET=true`**（仅 **strategy** 模式），则使用线程安全的 **`BinanceUsdMKlineBuffer`**（仅处理 **已收盘** K 线）；长度不足时可回落 REST。
 3. 产生信号后，若配置了 **Telegram**，**`telegram_notify`** 会发送 **模板化** 消息（在风控闸门之前）。
-4. **`risk.assess_signal`** 过滤信号；**`session_risk`** 可按 UTC 日限制新开多/空。
-5. **`execution`** 解析持仓模式，经 **`order_utils`** 下单，真实报单可记 **metrics**。
+4. **主动离场（可选）**：配置了任一 **`EXIT_*`** 时，在策略之前先用交易所入场价判断 **止损/止盈/移动止盈/超时**，命中即强制 `FLAT` 并跳过本轮策略。
+5. **`risk.assess_signal`** 过滤信号；**`session_risk`** 可按 UTC 日限制新开多/空。
+6. **`execution`** 解析持仓模式，经 **`order_utils`** 下单，真实报单可记 **metrics**。
 
 更细的流程图与模块表见 **[ARCHITECTURE.md](ARCHITECTURE.md)**（英文）。
 
@@ -126,6 +129,9 @@ docker run --rm \
 - **币安：** `BINANCE_API_KEY`、`BINANCE_API_SECRET`、`BINANCE_TESTNET`  
 - **LLM（`SIGNAL_SOURCE=llm`）：** `OPENAI_API_KEY`、可选 `OPENAI_BASE_URL`、`OPENAI_MODEL`、超时与重试  
 - **交易：** `SYMBOL`（如 `BTC/USDT:USDT`）、`TIMEFRAME`、`KLINES_LIMIT`、`MAX_NOTIONAL_USDT`、`DRY_RUN`、`MIN_CONFIDENCE`  
+- **选币（可选）：** **`SYMBOL_MODE`**（`single` \| `signal_pick`）、**`SYMBOL_CANDIDATES`**（`auto` 或手写列表）、**`SYMBOL_CANDIDATES_COUNT`**（2–12）、**`SYMBOL_CANDIDATES_RANK_BY` / `_WEIGHTS`**、流动性下限、暴涨暴跌黑名单、刷新间隔、**`SYMBOL_ROTATION_HYSTERESIS`**（见下文 [选币（signal_pick）](#选币signal_pick)）  
+- **仓位与杠杆：** **`POSITION_SIZING`**（`fixed` \| `equity_leverage` \| `available_margin_leverage`）、**`LEVERAGE`**、**`LEVERAGE_MODE`**（`fixed` \| `max`）、`STRATEGY_SIZE_PCT`、`MAX_NOTIONAL_USDT`（见下文 [仓位与杠杆](#仓位与杠杆)）  
+- **主动离场（可选）：** **`EXIT_STOP_LOSS_PCT`、`EXIT_TAKE_PROFIT_PCT`、`EXIT_TRAILING_PCT`、`EXIT_MAX_HOLD_MINUTES`、`EXIT_TAKE_PROFIT_ROE_PCT`、`EXIT_STOP_LOSS_ROE_PCT`**（默认全 0=关闭；见下文 [主动离场](#主动离场)）  
 - **规则信号：** `STRATEGY_NAME` 及 Ichimoku / Fib / VP / Stoch / ATR / ML 等 **`STRATEGY_*`（见下文 [内置规则策略](#内置规则策略) 与 `.env.example`）**  
 - **WebSocket（可选）：** `USE_WEBSOCKET`、`WS_RECONNECT_*`（需 `.[realtime]`；**仅 strategy 模式**）  
 - **Telegram（可选）：** `TELEGRAM_BOT_TOKEN`、`TELEGRAM_CHAT_ID`、`TELEGRAM_TEMPLATE`、`TELEGRAM_MESSAGE_TEMPLATE`、`TELEGRAM_PARSE_MODE`  
@@ -269,6 +275,75 @@ binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-
 - 配置 **`TELEGRAM_BOT_TOKEN`** 与 **`TELEGRAM_CHAT_ID`** 后，每个 **tick** 在产出规则或 LLM 信号后会发一条 **模板消息**（在风控拦截之前）。
 - **`TELEGRAM_TEMPLATE`：** `default`、`compact`、`oneline`、`html`（`html` 建议配合 **`TELEGRAM_PARSE_MODE=HTML`**）。
 - **`TELEGRAM_MESSAGE_TEMPLATE`：** 非空则覆盖内置模板；占位符为 Python **`format`** 语法，可用键见代码 **`telegram_format.build_trade_context`**；未提供的键置空。
+
+---
+
+## 仓位与杠杆
+
+**`POSITION_SIZING`** 决定每单名义价值：
+
+| 模式 | 名义价值 |
+|------|----------|
+| `fixed` | `MAX_NOTIONAL_USDT × size_pct%` |
+| `equity_leverage` | **钱包总权益** × 杠杆 × `size_pct%` |
+| `available_margin_leverage` | **可用保证金** × 杠杆 × `size_pct%` |
+
+下单数量 = 名义 / 价格，最终被 **`MAX_NOTIONAL_USDT`** 硬顶与交易所最小下单量约束。
+
+**杠杆**：`LEVERAGE_MODE=fixed` 用固定 **`LEVERAGE`**；`LEVERAGE_MODE=max` 用 **该下单币交易所允许的最大杠杆**（`LEVERAGE` 作为取不到时的回退）。
+
+**「保证金 = 全部权益的 X%」配方**：设 **`POSITION_SIZING=equity_leverage`** 且 **`STRATEGY_SIZE_PCT=X`**。
+此时 名义 = 权益 × 杠杆 × X%，**保证金 = 名义 / 杠杆 = 权益 × X%（与杠杆无关）**。
+
+> **示例**：权益 200 USDT、`STRATEGY_SIZE_PCT=5`、币价 1 USDT、杠杆 10x → 保证金 `200×5%=10`、名义 `10×10=100`、买 `100` 个。杠杆只放大名义/数量，保证金恒为权益的 5%。
+
+> **风险**：`LEVERAGE_MODE=max` + 高杠杆（主流币常见 75–125x）下，逆向波动很小即可击穿单笔保证金，**务必配合 [主动离场](#主动离场)**（尤其 `EXIT_STOP_LOSS_ROE_PCT`）。`MAX_NOTIONAL_USDT` 设很大时近似关闭硬顶，名义随权益放大，请按账户规模自行收紧。
+
+---
+
+## 选币（signal_pick）
+
+设 **`SYMBOL_MODE=signal_pick`**（需 **`SIGNAL_SOURCE=strategy`**，不支持 `USE_WEBSOCKET`）后，机器人维护一个 **候选池**，每分钟从中选信号最强的币，**同时只持一仓**。
+
+**候选池**（`SYMBOL_CANDIDATES=auto` 时自动筛选）：
+
+- **过滤**：仅 USDT 本位永续；排除稳定币与 **`SYMBOL_CANDIDATES_EXCLUDE`**；流动性下限 **`SYMBOL_CANDIDATES_MIN_QUOTE_VOLUME_USDT`**；暴涨暴跌黑名单 **`SYMBOL_CANDIDATES_MAX_ABS_CHANGE_PCT`**；以及「最小下单额可负担」过滤。
+- **排名**：**`SYMBOL_CANDIDATES_RANK_BY`** + **`_WEIGHTS`** 的复合分（按 **rank 百分位** 归一化，抗极值，不会被单个超大值压垮）。可用维度：
+
+| 维度 | 含义 |
+|------|------|
+| `liquidity` / `quote_volume`（别名 `volume`） | 24h USDT 成交额 |
+| `open_interest` | 持仓量（USDT） |
+| `abs_change` / `change` | 24h 涨跌幅（绝对值 / 带符号） |
+| `momentum`（别名 `trend`） | **趋势强度** `\|SMA_fast−SMA_slow\|/价`，用 **`STRATEGY_FAST/SLOW`** 与 **`TIMEFRAME`**，与交易策略对齐；**两段式**（先按流动性取短名单，再逐币拉 OHLCV，避免对全市场逐币请求） |
+| `funding` / `abs_funding`（别名 `funding_rate`） | 资金费率（带符号 / 绝对值=拥挤度），经 `fetch_funding_rates`；不可用时该维度自动降级 |
+| `random` | 伪随机（每小时种子），用于打散 |
+
+- **刷新**：**`SYMBOL_CANDIDATES_REFRESH_MINUTES`**（>0 时覆盖 `_HOURS`）。`SYMBOL_CANDIDATES=auto` 也可改为手写列表（2–12 个）。
+
+**单仓轮换**（`symbol_picker.plan_signal_pick_trades`）：空仓→开最强方向；持仓币仍最强→维持；出现更强的别的币→**先平再换**（2 笔）；持仓币给 `flat`→平仓；池外仓→平掉。**`SYMBOL_ROTATION_HYSTERESIS`**（默认 `0.05`）：只有新标的方向置信度 **≥ 在手仓 + 该值** 才换币，降低 1m/5m 噪声下的频繁换手（换手吃 taker 手续费 + 滑点）。
+
+---
+
+## 主动离场
+
+一套与策略信号无关的保护性平仓，**默认全部关闭（=0）**。开启任一项后，在每个 tick **优先于策略** 判断在手仓是否触发离场；命中即强制 `FLAT`（不被置信度/会话风控拦截）并跳过本轮策略。
+
+| 旋钮 | 含义 |
+|------|------|
+| `EXIT_STOP_LOSS_PCT` | 止损：相对入场价的**不利**价格变动达该 % 即平仓 |
+| `EXIT_TAKE_PROFIT_PCT` | 止盈：相对入场价的**有利**价格变动达该 % 即平仓 |
+| `EXIT_TRAILING_PCT` | 移动止盈：浮盈曾达该 %（armed）后，从最高点回撤该 % 即平仓 |
+| `EXIT_MAX_HOLD_MINUTES` | 持仓超时：持仓达该分钟数即平仓 |
+| `EXIT_TAKE_PROFIT_ROE_PCT` | 按**回报率** ROE 止盈：**`100` = 浮盈达到该仓保证金的 100%** |
+| `EXIT_STOP_LOSS_ROE_PCT` | 按 ROE 止损：亏到保证金的该 %（如 `80`）即平仓 |
+
+**说明：**
+
+- **两种口径**：`EXIT_*_PCT` 是 **入场价的价格变动 %**；`EXIT_*_ROE_PCT` 是 **回报率 ROE = 收益 / 保证金 = 价格变动% × 杠杆**。
+  - 例：杠杆 `100x` 时 `EXIT_TAKE_PROFIT_ROE_PCT=100`（浮盈=保证金）≈ 价格仅需有利变动 **1%**；杠杆越高触发越"贴身"。ROE 模式会按 `LEVERAGE_MODE` 解析该币实际杠杆。
+- 入场价取自交易所 **`entryPrice`**。**止损/止盈**（含 ROE）仅依赖入场价，**进程重启后照常生效**；**移动止盈/超时** 依赖内存状态（最高浮盈、首次见到时刻），**重启后会重新基准化**（偏保守）。
+- 仅在每个 tick（对齐 K 线收盘）判断，**非逐笔实时**；需要硬实时保护可在交易所侧另挂 `STOP_MARKET` 条件单。
 
 ---
 

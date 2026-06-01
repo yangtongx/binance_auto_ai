@@ -85,23 +85,73 @@ def apply_binance_usdm_environment(ex: ccxt.binanceusdm, *, testnet: bool) -> No
     ex.set_sandbox_mode(True)
 
 
+# 每个交易对的最大可用杠杆缓存（避免重复查询交易所）
+_MAX_LEVERAGE_CACHE: dict[str, float] = {}
+
+
+def symbol_max_leverage(ex: ccxt.binanceusdm, symbol: str) -> float | None:
+    """该交易对在币安允许的最大杠杆；先看市场 limits，再退回杠杆分层（需 API）。取不到返回 None。"""
+    cached = _MAX_LEVERAGE_CACHE.get(symbol)
+    if cached is not None:
+        return cached
+    max_lev: float | None = None
+    try:
+        market = ex.market(symbol)
+    except Exception:  # noqa: BLE001
+        market = None
+    if isinstance(market, dict):
+        lev_limits = (market.get("limits") or {}).get("leverage") or {}
+        raw = lev_limits.get("max")
+        try:
+            if raw is not None and float(raw) > 0:
+                max_lev = float(raw)
+        except (TypeError, ValueError):
+            max_lev = None
+    if max_lev is None:
+        try:
+            tiers = ex.fetch_leverage_tiers([symbol])
+            rows = (tiers or {}).get(symbol) or []
+            cand = max((float(t.get("maxLeverage") or 0) for t in rows), default=0.0)
+            if cand > 0:
+                max_lev = cand
+        except Exception as e:  # noqa: BLE001 - 无 API/不支持时优雅降级
+            logger.debug("fetch_leverage_tiers failed for %s: %s", symbol, e)
+    if max_lev is not None:
+        _MAX_LEVERAGE_CACHE[symbol] = max_lev
+    return max_lev
+
+
+def effective_leverage(ex: ccxt.binanceusdm, settings: Settings, symbol: str) -> float:
+    """LEVERAGE_MODE=max 时取该币最大杠杆（取不到回退 LEVERAGE）；否则用固定 LEVERAGE。"""
+    if settings.leverage_mode == "max":
+        m = symbol_max_leverage(ex, symbol)
+        if m is not None and m > 0:
+            return m
+        logger.warning(
+            "max leverage unavailable for %s; falling back to LEVERAGE=%s", symbol, settings.leverage
+        )
+    return settings.leverage
+
+
 def apply_symbol_leverage(ex: ccxt.binanceusdm, settings: Settings, *, symbol: str | None = None) -> None:
     """Set isolated/cross leverage on the traded symbol (mainnet keys required)."""
     sym = symbol or settings.symbol
-    if settings.leverage <= 1.0:
+    target = effective_leverage(ex, settings, sym)
+    if target <= 1.0:
         return
     if not settings.binance_api_key or settings.dry_run:
         logger.info(
-            "skip set_leverage(%.0f) on %s (dry_run=%s or no API key)",
-            settings.leverage,
+            "skip set_leverage(%.0f) on %s (dry_run=%s or no API key, mode=%s)",
+            target,
             sym,
             settings.dry_run,
+            settings.leverage_mode,
         )
         return
-    lev = int(round(settings.leverage))
+    lev = int(round(target))
     try:
         ex.set_leverage(lev, sym)
-        logger.info("Binance USDM leverage set to %sx on %s", lev, sym)
+        logger.info("Binance USDM leverage set to %sx on %s (mode=%s)", lev, sym, settings.leverage_mode)
     except ccxt.BaseError as e:
         logger.warning("set_leverage(%s, %s) failed: %s", lev, sym, e)
 

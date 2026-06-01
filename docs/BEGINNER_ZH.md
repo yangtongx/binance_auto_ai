@@ -123,6 +123,7 @@ flowchart TB
 - 策略出 **反向**信号 → 先 `reduceOnly` 平掉对立仓，再开新方向
 - **换币**（`signal_pick`）→ 对旧币发 `flat`，再在新币开仓
 - **`hold`** → 本分钟什么都不做
+- **主动离场**（`active_exit.py`，`EXIT_*` 任一开启时）→ 每个 tick **先于策略**判断止损/止盈/移动止盈/超时，命中即强制 `flat`
 
 ### 第 5 步：风控（30 分钟）
 
@@ -135,8 +136,9 @@ flowchart TB
 
 | 文件 | 看什么 |
 |------|--------|
-| `symbol_universe.py` | `CandidatePool`、`select_top_usdm_candidates` 排名 |
-| `symbol_picker.py` | `pick_best_directional`、`plan_signal_pick_trades` |
+| `symbol_universe.py` | `CandidatePool`、`select_top_usdm_candidates` 排名（`momentum`/`funding` 维度、rank 百分位归一化） |
+| `symbol_picker.py` | `pick_best_directional`、`plan_signal_pick_trades`、`SYMBOL_ROTATION_HYSTERESIS` 换币迟滞 |
+| `active_exit.py` | 止损/止盈/移动止盈/超时 + ROE 止盈止损（`EXIT_*` / `EXIT_*_ROE_PCT`）；`ExitTracker`、`held_exit_signal` |
 
 ### 第 7 步：面板与诊币（可选）
 
@@ -171,14 +173,19 @@ flowchart TB
 
 在 `execution_helpers.py` 的 `directional_notional_or_skip`：
 
-你当前类似：
+你当前类似（`POSITION_SIZING=equity_leverage` + `LEVERAGE_MODE=max`）：
 
 ```
-意向名义 ≈ 可用保证金 × LEVERAGE(5) × (STRATEGY_SIZE_PCT/100)
+意向名义 ≈ 全部权益 × 杠杆 × (STRATEGY_SIZE_PCT/100)
 实际名义 = min(意向名义, MAX_NOTIONAL_USDT - 已有持仓占用)
+数量    = 实际名义 / 价格
+保证金  = 名义 / 杠杆 = 全部权益 × (STRATEGY_SIZE_PCT/100)   ← 与杠杆无关
 ```
 
-例：可用保证金 40U，size_pct=25% → 40×5×0.25 = **50U** 意向，再和上限 80U 比。
+- `STRATEGY_SIZE_PCT=5` → **每单用 5% 权益作保证金**。
+- `LEVERAGE_MODE=max` → 杠杆=该币交易所允许的最大值（`LEVERAGE` 仅作取不到时回退）。
+- 例：权益 200U、币价 1U、杠杆 10x、size_pct=5% → 保证金 `200×5%=10U`、名义 `10×10=100U`、买 **100 个**。
+- `MAX_NOTIONAL_USDT` 设很大时近似关闭硬顶，名义随权益放大；最大杠杆下务必配合 `EXIT_STOP_LOSS_ROE_PCT` 止损。
 
 ---
 
@@ -253,8 +260,9 @@ binance-auto-ai --once
 ## 12. 下一步学什么
 
 - 想改策略：改 `backtest/strategies.py` + 回测验证 → 再改 `server.env` 的 `STRATEGY_*`
-- 想改选币：改 `symbol_universe.py` 排名权重
-- 想改仓位：改 `MAX_NOTIONAL_USDT`、`POSITION_SIZING`、`STRATEGY_SIZE_PCT`
+- 想改选币：改 `SYMBOL_CANDIDATES_RANK_BY` / `_WEIGHTS`（含 `momentum`、`funding`），或 `symbol_universe.py` 逻辑；换手太频改 `SYMBOL_ROTATION_HYSTERESIS`
+- 想加止损止盈：开 `EXIT_*`（价格变动 %）或 `EXIT_*_ROE_PCT`（按保证金回报率，`100`=浮盈达保证金），代码在 `active_exit.py`
+- 想改仓位：改 `POSITION_SIZING`、`STRATEGY_SIZE_PCT`（保证金=权益的该 %）、`LEVERAGE` / `LEVERAGE_MODE`（`max`=该币最大杠杆）、`MAX_NOTIONAL_USDT`
 - 想加功能：优先挂在 `cli._tick` 或 `observability.py`，少动 `order_utils` 底层
 
 有问题时，把 **日志里 20 行上下文** + **相关 `server.env` 片段** 一起对照本文第 5 节，一般能定位到具体文件。

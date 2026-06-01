@@ -103,10 +103,12 @@ def affordable_max_notional_usdt(
     cap = float(settings.max_notional_usdt)
     pct = settings.strategy_size_pct / 100.0
     mode = settings.position_sizing
+    # LEVERAGE_MODE=max 时各币最大杠杆不一（且查询昂贵），用较大假设值估可负担额度，避免误剔除
+    lev = 125.0 if settings.leverage_mode == "max" else settings.leverage
     if mode == "available_margin_leverage" and available_margin_usdt is not None and available_margin_usdt > 0:
-        return min(cap, float(available_margin_usdt) * settings.leverage * pct)
+        return min(cap, float(available_margin_usdt) * lev * pct)
     if mode == "equity_leverage" and equity_usdt is not None and equity_usdt > 0:
-        return min(cap, float(equity_usdt) * settings.leverage * pct)
+        return min(cap, float(equity_usdt) * lev * pct)
     return cap
 
 

@@ -7,12 +7,13 @@
 | 顺序 | 模块 | 说明 |
 |------|------|------|
 | 1 | `cli.py` | 主循环 `run_loop` → 每分钟 `_tick` |
-| 2 | `symbol_universe.py` | `CandidatePool` 自动/手动候选池 |
-| 3 | `symbol_picker.py` | 扫信号、选最强、`plan_signal_pick_trades` 平仓/换币 |
-| 4 | `strategy_factory.py` + `backtest/strategies.py` | 规则策略 `on_bar` |
-| 5 | `risk.py` + `session_risk.py` | 置信度 + 日笔数/日亏损 |
-| 6 | `execution*.py` | 单向/双向下单、名义金额 |
-| 7 | `order_utils.py` | `place_order`、`DRY_RUN` |
+| 2 | `symbol_universe.py` | `CandidatePool` 自动/手动候选池；`select_top_usdm_candidates` 复合排名（含 `momentum`/`funding`，rank 百分位归一化） |
+| 3 | `symbol_picker.py` | 扫信号、选最强、`plan_signal_pick_trades` 平仓/换币（含 `SYMBOL_ROTATION_HYSTERESIS` 换币迟滞） |
+| 4 | `active_exit.py` | 主动离场：`held_exit_signal` / `ExitTracker`（止损/止盈/移动止盈/超时 + **ROE 止盈止损** `EXIT_*`，优先于策略） |
+| 5 | `strategy_factory.py` + `backtest/strategies.py` | 规则策略 `on_bar` |
+| 6 | `risk.py` + `session_risk.py` | 置信度 + 日笔数/日亏损 |
+| 7 | `execution*.py` + `execution_helpers.py` | 单向/双向下单；名义/保证金计算（`POSITION_SIZING`、`LEVERAGE_MODE=max` 按币解析最大杠杆） |
+| 8 | `order_utils.py` | `place_order`、`DRY_RUN` |
 
 ## 信号与数据结构
 

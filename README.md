@@ -29,6 +29,8 @@ The project also includes a **teaching backtest** (simplified PnL model), a **re
 | **Advanced rules** | **`composite`** (ensemble voting), **`rsi_adaptive`** (volatility-scaled RSI bands), **`rl_sb3`** (Stable-Baselines3 policy; **`.[rl]`**) |
 | **RL training** | `examples/train_rl_sb3.py`: **Gymnasium** `FuturesPerpBarEnv`, reward modes (`pnl` / `pnl_cost` / `risk_adjusted`), PPO + tunable hyperparameters |
 | **VaR validation** | **`binance-auto-var-validate`**: rolling historical VaR vs realized log returns, **Kupiec** coverage statistic (CLI on `--csv` or `--fetch`) |
+| **Symbol selection (optional)** | **`SYMBOL_MODE=signal_pick`**: auto-build a USDT-perp candidate pool ranked by **liquidity / OI / change / `momentum` (trend) / `funding`** with **rank-percentile** normalization (outlier-robust); single position per tick, **`SYMBOL_ROTATION_HYSTERESIS`** to cut churn |
+| **Active exit (optional)** | Strategy-independent protective flats: **`EXIT_STOP_LOSS_PCT` / `EXIT_TAKE_PROFIT_PCT` / `EXIT_TRAILING_PCT` / `EXIT_MAX_HOLD_MINUTES`** (all default off) |
 | **Risk** | `MIN_CONFIDENCE`, notional caps (`MAX_NOTIONAL_USDT`), optional daily trade cap and daily loss cap (UTC); optional **`RISK_VAR_*`** gate + **`RISK_CORR_*`** logging in **`cli`** |
 | **Session state** | JSON `STATE_FILE` with `filelock` for multi-process safety |
 | **Backtest** | CSV or CCXT fetch; **close-to-close** approximation + fees (`fee_bps`); **not** full funding/leverage simulation |
@@ -43,8 +45,9 @@ The project also includes a **teaching backtest** (simplified PnL model), a **re
 1. **`cli.run_loop`** waits for the next 1m boundary (unless `--once`), then executes one **tick**.
 2. **Tick** fetches **USDT equity** and **positions**. **OHLCV** comes from **`fetch_ohlcv`** or, if **`USE_WEBSOCKET=true`** (strategy mode only), from a thread-safe **`BinanceUsdMKlineBuffer`** fed by closed klines; buffer may fall back to REST if too short.
 3. After a signal is produced, **`telegram_notify`** may send a **templated** message (if `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` are set).
-4. **`risk.assess_signal`** filters low-confidence/size signals; **`session_risk`** may block new long/short for the UTC day.
-5. **`execution`** resolves hedge mode, converts signals to orders via **`order_utils`**, and records metrics on real submissions.
+4. **Active exit (optional)**: if any `EXIT_*` rule is set, **`active_exit.held_exit_signal`** runs before the strategy and may force a `FLAT` (stop-loss / take-profit / trailing / max-hold) using the exchange `entryPrice`.
+5. **`risk.assess_signal`** filters low-confidence/size signals; **`session_risk`** may block new long/short for the UTC day.
+6. **`execution`** resolves hedge mode, converts signals to orders via **`order_utils`**, and records metrics on real submissions.
 
 For a diagram and module table, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
@@ -124,6 +127,9 @@ Copy **`.env.example`** → **`.env`** (loaded from repo root). Important groups
 - **Binance:** `BINANCE_API_KEY`, `BINANCE_API_SECRET`, `BINANCE_TESTNET`  
 - **LLM (when `SIGNAL_SOURCE=llm`):** `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_MODEL`, timeouts/retries  
 - **Trading:** `SYMBOL` (e.g. `BTC/USDT:USDT`), `TIMEFRAME`, `KLINES_LIMIT`, `MAX_NOTIONAL_USDT`, `DRY_RUN`, `MIN_CONFIDENCE`  
+- **Symbol selection (optional):** **`SYMBOL_MODE`** (`single` \| `signal_pick`), **`SYMBOL_CANDIDATES`** (`auto` or manual list), `SYMBOL_CANDIDATES_COUNT` (2–12), **`SYMBOL_CANDIDATES_RANK_BY` / `_WEIGHTS`**, liquidity floor, pump/dump blacklist, refresh interval, **`SYMBOL_ROTATION_HYSTERESIS`** (see [Symbol selection](#symbol-selection-signal_pick))  
+- **Position & leverage:** **`POSITION_SIZING`** (`fixed` \| `equity_leverage` \| `available_margin_leverage`), **`LEVERAGE`**, **`LEVERAGE_MODE`** (`fixed` \| `max`), `STRATEGY_SIZE_PCT`, `MAX_NOTIONAL_USDT` (see [Position sizing & leverage](#position-sizing--leverage))  
+- **Active exit (optional):** **`EXIT_STOP_LOSS_PCT`, `EXIT_TAKE_PROFIT_PCT`, `EXIT_TRAILING_PCT`, `EXIT_MAX_HOLD_MINUTES`, `EXIT_TAKE_PROFIT_ROE_PCT`, `EXIT_STOP_LOSS_ROE_PCT`** (all default `0` = off; see [Active exit](#active-exit))  
 - **Signals — rules:** `STRATEGY_NAME` and matching `STRATEGY_*` / Ichimoku / Fib / VP / Stoch / ATR / ML fields (**see [Strategies](#strategies-rules) and `.env.example`**)  
 - **WebSocket (optional):** `USE_WEBSOCKET`, `WS_RECONNECT_BASE_SEC`, `WS_RECONNECT_MAX_SEC`, `WS_RECONNECT_JITTER` (requires `.[realtime]`; **strategy** mode only)  
 - **Telegram (optional):** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `TELEGRAM_TEMPLATE`, `TELEGRAM_MESSAGE_TEMPLATE`, `TELEGRAM_PARSE_MODE`  
@@ -274,6 +280,74 @@ binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-
 - If **`TELEGRAM_BOT_TOKEN`** and **`TELEGRAM_CHAT_ID`** are set, each tick sends a **formatted** message after a strategy or LLM signal is produced (before risk gating).
 - **`TELEGRAM_TEMPLATE`:** `default`, `compact`, `oneline`, or `html` (use **`TELEGRAM_PARSE_MODE=HTML`** with `html`).
 - **`TELEGRAM_MESSAGE_TEMPLATE`:** if non-empty, overrides named templates; use Python **`str.format`** placeholders — keys are listed in **`telegram_format.build_trade_context`** (e.g. `{symbol}`, `{action}`, `{confidence}`, `{reason}`, `{equity_usdt}`). Unknown keys become empty strings.
+
+---
+
+## Position sizing & leverage
+
+**`POSITION_SIZING`** sets the per-order notional:
+
+| Mode | Notional |
+|------|----------|
+| `fixed` | `MAX_NOTIONAL_USDT × size_pct%` |
+| `equity_leverage` | **wallet total equity** × leverage × `size_pct%` |
+| `available_margin_leverage` | **available margin** × leverage × `size_pct%` |
+
+Order quantity = notional / price, then clamped by **`MAX_NOTIONAL_USDT`** and the exchange min order size.
+
+**Leverage:** `LEVERAGE_MODE=fixed` uses the fixed **`LEVERAGE`**; `LEVERAGE_MODE=max` uses **the symbol's exchange-max leverage** (`LEVERAGE` is the fallback when it can't be read).
+
+**"Margin = X% of equity" recipe:** set **`POSITION_SIZING=equity_leverage`** and **`STRATEGY_SIZE_PCT=X`**. Then notional = equity × leverage × X%, so **margin = notional / leverage = equity × X% (independent of leverage)**.
+
+> **Example:** equity 200 USDT, `STRATEGY_SIZE_PCT=5`, price 1 USDT, leverage 10x → margin `200×5%=10`, notional `10×10=100`, buy `100` units. Leverage scales notional/quantity only; margin stays 5% of equity.
+
+> **Risk:** with `LEVERAGE_MODE=max` + high leverage (majors often 75–125x), a small adverse move can wipe a single position's margin — pair it with [Active exit](#active-exit) (especially `EXIT_STOP_LOSS_ROE_PCT`). A very large `MAX_NOTIONAL_USDT` effectively disables the hard cap, so notional scales with equity; tune it to your account.
+
+---
+
+## Symbol selection (`signal_pick`)
+
+With **`SYMBOL_MODE=signal_pick`** (requires **`SIGNAL_SOURCE=strategy`**; not compatible with `USE_WEBSOCKET`), the bot keeps a **candidate pool** and each tick trades the strongest signal among them, holding a **single** position at a time.
+
+**Candidate pool** (when `SYMBOL_CANDIDATES=auto`):
+
+- **Filters:** USDT linear perps only; exclude stables and `SYMBOL_CANDIDATES_EXCLUDE`; liquidity floor `SYMBOL_CANDIDATES_MIN_QUOTE_VOLUME_USDT`; pump/dump blacklist `SYMBOL_CANDIDATES_MAX_ABS_CHANGE_PCT`; and an affordability filter (exchange min notional ≤ affordable).
+- **Ranking:** weighted sum of **rank-percentile**-normalized metrics (`SYMBOL_CANDIDATES_RANK_BY` + `_WEIGHTS`; outlier-robust). Metrics:
+
+| Metric | Meaning |
+|--------|---------|
+| `liquidity` / `quote_volume` (alias `volume`) | 24h USDT turnover |
+| `open_interest` | Open interest (USDT) |
+| `abs_change` / `change` | 24h move (absolute / signed) |
+| `momentum` (alias `trend`) | **Trend strength** `\|SMA_fast−SMA_slow\|/price` on `STRATEGY_FAST/SLOW` & `TIMEFRAME` (aligned with the trading strategy); **two-stage** (liquidity shortlist → per-symbol `fetch_ohlcv`) to avoid market-wide per-symbol calls |
+| `funding` / `abs_funding` (alias `funding_rate`) | Funding rate (signed / magnitude = crowdedness) via `fetch_funding_rates`; degrades gracefully if unavailable |
+| `random` | Pseudo-random (hourly seed) for tie-spreading |
+
+- **Refresh:** `SYMBOL_CANDIDATES_REFRESH_MINUTES` (>0 overrides `_HOURS`). `auto` can be replaced by a manual list (2–12 symbols).
+
+**Single-position rotation** (`symbol_picker.plan_signal_pick_trades`): open the strongest direction when flat; keep if the held symbol is still strongest; rotate to a better symbol only when its confidence beats the held one by **`SYMBOL_ROTATION_HYSTERESIS`** (default `0.05`) — each rotation is 2 taker orders, so hysteresis reduces churn from 1m/5m noise.
+
+---
+
+## Active exit
+
+Strategy-independent protective flats, **all off by default (`0`)**. When any rule is set, the held position is checked at the start of each tick **before** the strategy; a trigger forces a `FLAT` (which bypasses confidence/session gates) and skips the strategy that tick.
+
+| Knob | Meaning |
+|------|---------|
+| `EXIT_STOP_LOSS_PCT` | Stop loss: adverse price move from entry reaches this % |
+| `EXIT_TAKE_PROFIT_PCT` | Take profit: favorable move reaches this % |
+| `EXIT_TRAILING_PCT` | Trailing: arms after peak ≥ pct, exits on retrace ≥ pct from the peak |
+| `EXIT_MAX_HOLD_MINUTES` | Time stop: flat after holding this many minutes |
+| `EXIT_TAKE_PROFIT_ROE_PCT` | Take profit by **return-on-margin**: **`100` = profit equals the position's margin** |
+| `EXIT_STOP_LOSS_ROE_PCT` | Stop loss by ROE: flat when loss reaches this % of margin (e.g. `80`) |
+
+**Notes:**
+
+- **Two scales:** `EXIT_*_PCT` is a **price move % from `entryPrice`**; `EXIT_*_ROE_PCT` is **ROE = PnL / margin = price-move% × leverage**.
+  - e.g. at `100x`, `EXIT_TAKE_PROFIT_ROE_PCT=100` (profit = margin) ≈ only a **1%** favorable price move; higher leverage triggers tighter. ROE mode resolves the symbol's actual leverage via `LEVERAGE_MODE`.
+- Stop/take-profit (incl. ROE) need only `entryPrice` and **survive restarts**; trailing/time-stop use in-memory `ExitTracker` state (peak PnL%, first-seen time) that **re-baselines on restart**.
+- Evaluated **once per tick** (at candle close), not tick-by-tick; for hard real-time protection add an exchange-native `STOP_MARKET` order.
 
 ---
 
