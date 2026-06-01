@@ -6,7 +6,7 @@ WORKDIR /build
 COPY pyproject.toml requirements-lock.txt README.md ./
 COPY src/ src/
 
-RUN pip install --no-cache-dir --prefix=/install .
+RUN pip install --no-cache-dir --prefix=/install ".[coinglass]"
 
 # ---- 运行阶段 ----
 FROM python:3.12-slim

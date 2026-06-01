@@ -34,6 +34,8 @@ services:
 
       TELEGRAM_CHAT_ID_FILE: /run/secrets/telegram_chat_id
 
+      COINGLASS_API_KEY_FILE: /run/secrets/coinglass_api_key
+
     secrets:
 
       - binance_api_key
@@ -107,4 +109,8 @@ secrets:
   telegram_chat_id:
 
     file: ./secrets/telegram_chat_id
+
+  coinglass_api_key:
+
+    file: ./secrets/coinglass_api_key
 

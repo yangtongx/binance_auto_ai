@@ -21,6 +21,7 @@ if [ "$(id -u)" = "0" ]; then
   _load_one OPENAI_API_KEY /run/secrets/openai_api_key
   _load_one TELEGRAM_BOT_TOKEN /run/secrets/telegram_bot_token
   _load_one TELEGRAM_CHAT_ID /run/secrets/telegram_chat_id
+  _load_one COINGLASS_API_KEY /run/secrets/coinglass_api_key
   exec gosu bot:bot "$@"
 fi
 

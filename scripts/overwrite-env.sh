@@ -32,5 +32,11 @@ else
   echo "Telegram (optional): bash scripts/install-telegram-secrets.sh -i"
 fi
 
+if [[ -s "$ROOT/secrets/coinglass_api_key" ]]; then
+  echo "CoinGlass: secrets/coinglass_api_key present"
+else
+  echo "CoinGlass (optional): echo -n 'YOUR_KEY' > secrets/coinglass_api_key && chmod 600 secrets/coinglass_api_key"
+fi
+
+echo "Deploy: bash scripts/deploy.sh"
 echo "Next: docker compose run --rm bot python -m binance_auto_ai.cli --smoke"
-echo "      docker compose up -d --build"
