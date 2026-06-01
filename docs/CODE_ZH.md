@@ -7,7 +7,8 @@
 | 顺序 | 模块 | 说明 |
 |------|------|------|
 | 1 | `cli.py` | 主循环 `run_loop` → 每分钟 `_tick` |
-| 2 | `symbol_universe.py` | `CandidatePool` 自动/手动候选池；`select_top_usdm_candidates` 复合排名（含 `momentum`/`funding`，rank 百分位归一化） |
+| 2 | `symbol_universe.py` | `CandidatePool` 自动/手动候选池；`select_top_usdm_candidates` 复合排名（含 `momentum`/`funding`/`cg_oi_change`，rank 百分位归一化；CoinGlass 资金费率过滤） |
+| 2.5 | `coinglass.py` | 可选 CoinGlass V4 客户端：聚合 OI 变化/资金费率（`COINGLASS_*`，失败降级） |
 | 3 | `symbol_picker.py` | 扫信号、选最强、`plan_signal_pick_trades` 平仓/换币（含 `SYMBOL_ROTATION_HYSTERESIS` 换币迟滞） |
 | 4 | `active_exit.py` | 主动离场：`held_exit_signal` / `ExitTracker`（止损/止盈/移动止盈/超时 + **ROE 止盈止损** `EXIT_*`，优先于策略） |
 | 5 | `strategy_factory.py` + `backtest/strategies.py` | 规则策略 `on_bar` |

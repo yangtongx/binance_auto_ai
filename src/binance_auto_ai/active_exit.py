@@ -77,6 +77,8 @@ class ExitTracker:
         mark: float,
         settings: Settings,
         leverage: float = 1.0,
+        cg_oi_change_pct: float | None = None,
+        cg_funding_rate: float | None = None,
         now_ts: float | None = None,
     ) -> ExitDecision:
         """更新该仓状态并判断是否触发离场。side 为空（平仓）时清除状态并返回不离场。
@@ -108,6 +110,13 @@ class ExitTracker:
         if sl_roe > 0.0 and roe <= -sl_roe:
             return ExitDecision(True, f"stop_loss_roe roe={roe:.1f}% (pnl={pnl:.2f}%×{lev:.0f}) <= -{sl_roe:.1f}%")
 
+        adverse_funding = settings.exit_cg_adverse_funding
+        if adverse_funding > 0.0 and cg_funding_rate is not None:
+            if side == "long" and cg_funding_rate >= adverse_funding:
+                return ExitDecision(True, f"cg_adverse_funding long funding={cg_funding_rate:+.4f} >= {adverse_funding:.4f}")
+            if side == "short" and cg_funding_rate <= -adverse_funding:
+                return ExitDecision(True, f"cg_adverse_funding short funding={cg_funding_rate:+.4f} <= -{adverse_funding:.4f}")
+
         tp = settings.exit_take_profit_pct
         if tp > 0.0 and pnl >= tp:
             return ExitDecision(True, f"take_profit pnl={pnl:.2f}% >= {tp:.2f}%")
@@ -123,6 +132,13 @@ class ExitTracker:
                 f"trailing peak={st.peak_pnl_pct:.2f}% drop={st.peak_pnl_pct - pnl:.2f}% >= {trail:.2f}%",
             )
 
+        oi_drop = settings.exit_cg_oi_drop_pct
+        if oi_drop > 0.0 and cg_oi_change_pct is not None and pnl >= 0.0 and cg_oi_change_pct <= -oi_drop:
+            return ExitDecision(
+                True,
+                f"cg_oi_drop oi_change={cg_oi_change_pct:+.2f}% <= -{oi_drop:.2f}% (pnl={pnl:.2f}%≥0, 趋势衰竭落袋)",
+            )
+
         max_hold = settings.exit_max_hold_minutes
         if max_hold > 0.0:
             held_min = (now - st.first_ts) / 60.0
@@ -132,11 +148,28 @@ class ExitTracker:
         return ExitDecision(False, f"hold pnl={pnl:.2f}% peak={st.peak_pnl_pct:.2f}%")
 
 
+def _coinglass_coin_metrics(settings: Settings, symbol: str, coinglass: object | None) -> tuple[float | None, float | None]:
+    """返回该币的 (聚合OI变化%, 聚合资金费率)；未启用/取不到 → (None, None)。"""
+    if coinglass is None or not settings.coinglass_exit_enabled():
+        return None, None
+    try:
+        metrics = coinglass.coin_metrics()  # type: ignore[attr-defined]
+    except Exception as e:  # noqa: BLE001 - CoinGlass 异常不影响价格类止损
+        logger.debug("active exit: coinglass coin_metrics failed for %s (%s)", symbol, e)
+        return None, None
+    base = symbol.split("/")[0].upper()
+    row = metrics.get(base) if isinstance(metrics, dict) else None
+    if not isinstance(row, dict):
+        return None, None
+    return row.get("oi_change_pct"), row.get("funding_rate")
+
+
 def held_exit_signal(
     ex: ccxt.binanceusdm,
     settings: Settings,
     symbol: str,
     tracker: ExitTracker,
+    coinglass: object | None = None,
 ) -> LLMSignal | None:
     """若该交易对持仓触发任一离场规则，返回一个 FLAT 信号；否则 None。"""
     try:
@@ -159,6 +192,7 @@ def held_exit_signal(
         except Exception as e:  # noqa: BLE001
             logger.debug("active exit: leverage lookup failed for %s (%s); using 1x", symbol, e)
             lev = settings.leverage
+    cg_oi_change_pct, cg_funding_rate = _coinglass_coin_metrics(settings, symbol, coinglass)
     decision = tracker.update_and_check(
         symbol,
         side=entry.side,
@@ -166,6 +200,8 @@ def held_exit_signal(
         mark=mark,
         settings=settings,
         leverage=lev,
+        cg_oi_change_pct=cg_oi_change_pct,
+        cg_funding_rate=cg_funding_rate,
     )
     if not decision.should_exit:
         return None

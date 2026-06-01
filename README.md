@@ -84,6 +84,7 @@ copy .env.example .env   # Windows — use cp on Unix
 | `ml-torch` | `pip install -e ".[ml-torch]"` | PyTorch for **TorchScript** ML inference + **training example** |
 | `ml-tf` | `pip install -e ".[ml-tf]"` | TensorFlow/Keras for **flat** ML models only |
 | `rl` | `pip install -e ".[rl]"` | **stable-baselines3** + **gymnasium** for **`rl_sb3`** and **`train_rl_sb3.py`** |
+| `coinglass` | `pip install -e ".[coinglass]"` | **requests** (CoinGlass selection metrics; socks proxy also needs `requests[socks]` / PySocks) |
 
 Editable install exposes console scripts:
 
@@ -128,6 +129,7 @@ Copy **`.env.example`** → **`.env`** (loaded from repo root). Important groups
 - **LLM (when `SIGNAL_SOURCE=llm`):** `OPENAI_API_KEY`, optional `OPENAI_BASE_URL`, `OPENAI_MODEL`, timeouts/retries  
 - **Trading:** `SYMBOL` (e.g. `BTC/USDT:USDT`), `TIMEFRAME`, `KLINES_LIMIT`, `MAX_NOTIONAL_USDT`, `DRY_RUN`, `MIN_CONFIDENCE`  
 - **Symbol selection (optional):** **`SYMBOL_MODE`** (`single` \| `signal_pick`), **`SYMBOL_CANDIDATES`** (`auto` or manual list), `SYMBOL_CANDIDATES_COUNT` (2–12), **`SYMBOL_CANDIDATES_RANK_BY` / `_WEIGHTS`**, liquidity floor, pump/dump blacklist, refresh interval, **`SYMBOL_ROTATION_HYSTERESIS`** (see [Symbol selection](#symbol-selection-signal_pick))  
+- **CoinGlass (optional):** **`COINGLASS_API_KEY`**, `COINGLASS_BASE_URL`, `COINGLASS_TIMEOUT_SEC`, `COINGLASS_CACHE_TTL_SEC`, **`COINGLASS_MAX_ABS_FUNDING_PCT`** (aggregated-funding filter); requires `.[coinglass]`, off when the key is empty  
 - **Position & leverage:** **`POSITION_SIZING`** (`fixed` \| `equity_leverage` \| `available_margin_leverage`), **`LEVERAGE`**, **`LEVERAGE_MODE`** (`fixed` \| `max`), `STRATEGY_SIZE_PCT`, `MAX_NOTIONAL_USDT` (see [Position sizing & leverage](#position-sizing--leverage))  
 - **Active exit (optional):** **`EXIT_STOP_LOSS_PCT`, `EXIT_TAKE_PROFIT_PCT`, `EXIT_TRAILING_PCT`, `EXIT_MAX_HOLD_MINUTES`, `EXIT_TAKE_PROFIT_ROE_PCT`, `EXIT_STOP_LOSS_ROE_PCT`** (all default `0` = off; see [Active exit](#active-exit))  
 - **Signals — rules:** `STRATEGY_NAME` and matching `STRATEGY_*` / Ichimoku / Fib / VP / Stoch / ATR / ML fields (**see [Strategies](#strategies-rules) and `.env.example`**)  
@@ -321,9 +323,12 @@ With **`SYMBOL_MODE=signal_pick`** (requires **`SIGNAL_SOURCE=strategy`**; not c
 | `abs_change` / `change` | 24h move (absolute / signed) |
 | `momentum` (alias `trend`) | **Trend strength** `\|SMA_fast−SMA_slow\|/price` on `STRATEGY_FAST/SLOW` & `TIMEFRAME` (aligned with the trading strategy); **two-stage** (liquidity shortlist → per-symbol `fetch_ohlcv`) to avoid market-wide per-symbol calls |
 | `funding` / `abs_funding` (alias `funding_rate`) | Funding rate (signed / magnitude = crowdedness) via `fetch_funding_rates`; degrades gracefully if unavailable |
+| `cg_oi_change` (alias `oi_change`) | **CoinGlass cross-exchange aggregated open-interest change %** — confirms real money following the trend; needs `COINGLASS_API_KEY`, else this metric degrades |
 | `random` | Pseudo-random (hourly seed) for tie-spreading |
 
+- **CoinGlass filter (optional):** set **`COINGLASS_MAX_ABS_FUNDING_PCT`** to drop overcrowded (squeeze-prone) coins by CoinGlass **aggregated funding rate** (like the pump/dump blacklist).
 - **Refresh:** `SYMBOL_CANDIDATES_REFRESH_MINUTES` (>0 overrides `_HOURS`). `auto` can be replaced by a manual list (2–12 symbols).
+- **CoinGlass setup:** `pip install -e ".[coinglass]"` and set **`COINGLASS_API_KEY`** (V4, `CG-API-KEY` header). One cached `coins-markets` snapshot per refresh; if not installed / no key / request fails, `cg_oi_change` and the funding filter **turn off** without affecting the main loop. Recommended `RANK_BY=momentum,cg_oi_change,liquidity`.
 
 **Single-position rotation** (`symbol_picker.plan_signal_pick_trades`): open the strongest direction when flat; keep if the held symbol is still strongest; rotate to a better symbol only when its confidence beats the held one by **`SYMBOL_ROTATION_HYSTERESIS`** (default `0.05`) — each rotation is 2 taker orders, so hysteresis reduces churn from 1m/5m noise.
 
@@ -341,12 +346,15 @@ Strategy-independent protective flats, **all off by default (`0`)**. When any ru
 | `EXIT_MAX_HOLD_MINUTES` | Time stop: flat after holding this many minutes |
 | `EXIT_TAKE_PROFIT_ROE_PCT` | Take profit by **return-on-margin**: **`100` = profit equals the position's margin** |
 | `EXIT_STOP_LOSS_ROE_PCT` | Stop loss by ROE: flat when loss reaches this % of margin (e.g. `80`) |
+| `EXIT_CG_OI_DROP_PCT` | **CoinGlass OI-collapse exit**: while in profit, flat when aggregated OI change% ≤ -this (trend exhaustion); needs `COINGLASS_API_KEY` |
+| `EXIT_CG_ADVERSE_FUNDING` | **Adverse-funding guard**: flat a long when aggregated funding ≥ this / a short when ≤ -this (overcrowded); needs `COINGLASS_API_KEY` |
 
 **Notes:**
 
 - **Two scales:** `EXIT_*_PCT` is a **price move % from `entryPrice`**; `EXIT_*_ROE_PCT` is **ROE = PnL / margin = price-move% × leverage**.
   - e.g. at `100x`, `EXIT_TAKE_PROFIT_ROE_PCT=100` (profit = margin) ≈ only a **1%** favorable price move; higher leverage triggers tighter. ROE mode resolves the symbol's actual leverage via `LEVERAGE_MODE`.
 - Stop/take-profit (incl. ROE) need only `entryPrice` and **survive restarts**; trailing/time-stop use in-memory `ExitTracker` state (peak PnL%, first-seen time) that **re-baselines on restart**.
+- **CoinGlass exits** (`EXIT_CG_*`) reuse the selection aggregated data (shared client + TTL cache) — a trend/crowding-level supplement (slow, delayed signal); they **skip silently when data or the key is missing and never affect the price-based stops**.
 - Evaluated **once per tick** (at candle close), not tick-by-tick; for hard real-time protection add an exchange-native `STOP_MARKET` order.
 
 ---

@@ -16,6 +16,8 @@ def _settings(**kw: object) -> Settings:
         exit_max_hold_minutes=0.0,
         exit_take_profit_roe_pct=0.0,
         exit_stop_loss_roe_pct=0.0,
+        exit_cg_oi_drop_pct=0.0,
+        exit_cg_adverse_funding=0.0,
         leverage=1.0,
         leverage_mode="fixed",
         dry_run=False,
@@ -109,6 +111,55 @@ def test_roe_disabled_when_zero() -> None:
     t = ExitTracker()
     assert t.update_and_check(
         "X", side="long", entry_price=100.0, mark=130.0, settings=s, leverage=125.0
+    ).should_exit is False
+
+
+def test_cg_oi_drop_exit_only_when_in_profit() -> None:
+    s = _settings(exit_cg_oi_drop_pct=15.0)
+    t = ExitTracker()
+    # in profit + OI collapsing -20% <= -15% -> exit
+    d = t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=102.0, settings=s, cg_oi_change_pct=-20.0
+    )
+    assert d.should_exit is True
+    assert "cg_oi_drop" in d.reason
+    # at a loss -> OI-drop rule does not fire (price stop handles losses)
+    t2 = ExitTracker()
+    assert t2.update_and_check(
+        "Y", side="long", entry_price=100.0, mark=98.0, settings=s, cg_oi_change_pct=-20.0
+    ).should_exit is False
+    # in profit but OI not dropping enough -> no exit
+    t3 = ExitTracker()
+    assert t3.update_and_check(
+        "Z", side="long", entry_price=100.0, mark=102.0, settings=s, cg_oi_change_pct=-5.0
+    ).should_exit is False
+
+
+def test_cg_adverse_funding_guard() -> None:
+    s = _settings(exit_cg_adverse_funding=0.05)
+    t = ExitTracker()
+    # long + funding very positive (crowded longs) -> exit
+    assert t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=100.0, settings=s, cg_funding_rate=0.08
+    ).should_exit is True
+    # short + funding very negative -> exit
+    t2 = ExitTracker()
+    assert t2.update_and_check(
+        "Y", side="short", entry_price=100.0, mark=100.0, settings=s, cg_funding_rate=-0.08
+    ).should_exit is True
+    # long + mildly positive funding -> no exit
+    t3 = ExitTracker()
+    assert t3.update_and_check(
+        "Z", side="long", entry_price=100.0, mark=100.0, settings=s, cg_funding_rate=0.01
+    ).should_exit is False
+
+
+def test_cg_rules_inactive_without_data() -> None:
+    s = _settings(exit_cg_oi_drop_pct=15.0, exit_cg_adverse_funding=0.05)
+    t = ExitTracker()
+    # no CoinGlass data passed -> rules skip, price stops still govern (none set here)
+    assert t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=102.0, settings=s
     ).should_exit is False
 
 

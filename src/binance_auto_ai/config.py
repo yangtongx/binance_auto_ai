@@ -35,6 +35,7 @@ _DOCKER_SECRET_MAP = {
     "OPENAI_API_KEY": "OPENAI_API_KEY_FILE",
     "TELEGRAM_BOT_TOKEN": "TELEGRAM_BOT_TOKEN_FILE",
     "TELEGRAM_CHAT_ID": "TELEGRAM_CHAT_ID_FILE",
+    "COINGLASS_API_KEY": "COINGLASS_API_KEY_FILE",
 }
 
 
@@ -230,6 +231,18 @@ class Settings(BaseSettings):
         le=1.0,
         validation_alias="SYMBOL_ROTATION_HYSTERESIS",
     )
+
+    # --- CoinGlass 衍生品数据（可选，用于选币）。需 pip install -e ".[coinglass]"；key 为空则全部关闭 ---
+    coinglass_api_key: str = Field(default="", validation_alias="COINGLASS_API_KEY")
+    coinglass_base_url: str = Field(
+        default="https://open-api-v4.coinglass.com", validation_alias="COINGLASS_BASE_URL"
+    )
+    coinglass_timeout_sec: float = Field(default=10.0, gt=0, le=120, validation_alias="COINGLASS_TIMEOUT_SEC")
+    coinglass_cache_ttl_sec: float = Field(default=300.0, ge=0, validation_alias="COINGLASS_CACHE_TTL_SEC")
+    # 聚合资金费率过滤：|funding| 超过此值（单位同 CoinGlass 返回，通常为百分比）的币不入池。0=关闭
+    coinglass_max_abs_funding_pct: float = Field(
+        default=0.0, ge=0.0, validation_alias="COINGLASS_MAX_ABS_FUNDING_PCT"
+    )
     timeframe: str = Field(default="1m", validation_alias="TIMEFRAME")
     klines_limit: int = Field(default=120, ge=10, le=1500, validation_alias="KLINES_LIMIT")
     # --- 仓位与名义金额 ---
@@ -259,6 +272,11 @@ class Settings(BaseSettings):
     exit_take_profit_roe_pct: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_TAKE_PROFIT_ROE_PCT")
     # 止损：ROE 跌到 -该 % 即平仓（如 80 = 亏掉 80% 保证金）
     exit_stop_loss_roe_pct: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_STOP_LOSS_ROE_PCT")
+    # --- CoinGlass 衍生数据离场（需 COINGLASS_API_KEY；0=关闭）---
+    # OI 骤降离场：持仓有浮盈时，聚合 OI 变化% ≤ -该值（仓位快速平掉=趋势衰竭）即落袋
+    exit_cg_oi_drop_pct: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_CG_OI_DROP_PCT")
+    # 逆向资金费率护栏：做多时聚合资金费率 ≥ 该值、做空时 ≤ -该值（过度拥挤）即离场。单位同 CoinGlass 返回
+    exit_cg_adverse_funding: float = Field(default=0.0, ge=0.0, validation_alias="EXIT_CG_ADVERSE_FUNDING")
 
     exchange_timeout_ms: int = Field(default=30_000, ge=1_000, validation_alias="EXCHANGE_TIMEOUT_MS")
     position_poll_interval_sec: float = Field(default=0.15, gt=0, validation_alias="POSITION_POLL_INTERVAL_SEC")
@@ -283,12 +301,15 @@ class Settings(BaseSettings):
             return ""
         return str(v).strip()
 
-    @field_validator("binance_api_key", "binance_api_secret", "openai_api_key", mode="before")
+    @field_validator("binance_api_key", "binance_api_secret", "openai_api_key", "coinglass_api_key", mode="before")
     @classmethod
     def _strip_secrets(cls, v: object) -> str:
         if v is None:
             return ""
         return str(v).strip()
+
+    def coinglass_enabled(self) -> bool:
+        return bool(self.coinglass_api_key)
 
     @field_validator("openai_base_url", mode="before")
     @classmethod
@@ -547,7 +568,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SYMBOL_CANDIDATES_RANK_BY needs at least one of: "
                 "abs_change, change, open_interest, liquidity, quote_volume, "
-                "momentum (trend), funding, abs_funding, random"
+                "momentum (trend), funding, abs_funding, cg_oi_change (oi_change), random"
             )
         return ",".join(metrics)
 
@@ -608,7 +629,12 @@ class Settings(BaseSettings):
             or self.exit_max_hold_minutes > 0.0
             or self.exit_take_profit_roe_pct > 0.0
             or self.exit_stop_loss_roe_pct > 0.0
+            or self.coinglass_exit_enabled()
         )
+
+    def coinglass_exit_enabled(self) -> bool:
+        """是否启用任一基于 CoinGlass 的离场规则。"""
+        return self.exit_cg_oi_drop_pct > 0.0 or self.exit_cg_adverse_funding > 0.0
 
     @field_validator("symbol", mode="before")
     @classmethod

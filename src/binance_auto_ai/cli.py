@@ -204,11 +204,12 @@ def _maybe_exit_held(
     available_margin: float | None,
     session: SessionRisk,
     exit_tracker: ExitTracker | None,
+    coinglass: object | None = None,
 ) -> bool:
-    """主动离场：触发任一止损/止盈/移动止盈/超时则强制 FLAT，返回 True 表示本轮已离场。"""
+    """主动离场：触发任一止损/止盈/移动止盈/超时/CoinGlass 规则则强制 FLAT，返回 True 表示本轮已离场。"""
     if exit_tracker is None:
         return False
-    forced = held_exit_signal(ex, settings, symbol, exit_tracker)
+    forced = held_exit_signal(ex, settings, symbol, exit_tracker, coinglass=coinglass)
     if forced is None:
         return False
     logger.info("active exit %s: %s", symbol, forced.reason)
@@ -235,6 +236,7 @@ def _tick_signal_pick(
     rule_strategy: Strategy,
     candidate_pool: CandidatePool,
     exit_tracker: ExitTracker | None = None,
+    exit_coinglass: object | None = None,
 ) -> None:
     """多币候选池模式：扫描信号 → 选最强 → 规划平仓/换币/开仓步骤并执行。"""
     candidates = candidate_pool.symbols()
@@ -253,6 +255,7 @@ def _tick_signal_pick(
             available_margin=available_margin,
             session=session,
             exit_tracker=exit_tracker,
+            coinglass=exit_coinglass,
         ):
             return
     pick = pick_best_directional(
@@ -313,6 +316,7 @@ def _tick(
     ws_buffer: BinanceUsdMKlineBuffer | None = None,
     candidate_pool: CandidatePool | None = None,
     exit_tracker: ExitTracker | None = None,
+    exit_coinglass: object | None = None,
 ) -> None:
     """单次 tick：signal_pick 或单币 LLM/规则策略，最后刷新面板状态。"""
     metrics.record_tick_attempt()
@@ -330,6 +334,7 @@ def _tick(
                 rule_strategy=rule_strategy,
                 candidate_pool=candidate_pool,
                 exit_tracker=exit_tracker,
+                exit_coinglass=exit_coinglass,
             )
             return
 
@@ -346,6 +351,7 @@ def _tick(
             available_margin=available_margin,
             session=session,
             exit_tracker=exit_tracker,
+            coinglass=exit_coinglass,
         ):
             metrics.record_tick_completed()
             return
@@ -454,9 +460,14 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
 
     ex = build_exchange(settings)
     load_binance_usdm_markets(ex)
+    coinglass_client = None
+    if settings.coinglass_enabled():
+        from binance_auto_ai.coinglass import build_coinglass_client
+
+        coinglass_client = build_coinglass_client(settings)
     candidate_pool: CandidatePool | None = None
     if settings.symbol_mode == "signal_pick":
-        candidate_pool = CandidatePool(settings)
+        candidate_pool = CandidatePool(settings, coinglass=coinglass_client)
         candidate_pool.refresh(ex)
         for sym in candidate_pool.symbols():
             apply_symbol_leverage(ex, settings, symbol=sym)
@@ -472,11 +483,16 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
     exit_tracker = ExitTracker() if settings.active_exit_enabled() else None
     if exit_tracker is not None:
         logger.info(
-            "active exit enabled: stop_loss=%s%% take_profit=%s%% trailing=%s%% max_hold=%smin",
+            "active exit enabled: stop_loss=%s%% take_profit=%s%% trailing=%s%% max_hold=%smin "
+            "roe_tp=%s%% roe_sl=%s%% cg_oi_drop=%s%% cg_adverse_funding=%s",
             settings.exit_stop_loss_pct,
             settings.exit_take_profit_pct,
             settings.exit_trailing_pct,
             settings.exit_max_hold_minutes,
+            settings.exit_take_profit_roe_pct,
+            settings.exit_stop_loss_roe_pct,
+            settings.exit_cg_oi_drop_pct,
+            settings.exit_cg_adverse_funding,
         )
     boot_syms = candidate_pool.symbols() if candidate_pool is not None else None
     dashboard_state.set_boot_config(settings, candidate_symbols=boot_syms)
@@ -585,6 +601,7 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
                     ws_buffer=ws_buffer,
                     candidate_pool=candidate_pool,
                     exit_tracker=exit_tracker,
+                    exit_coinglass=coinglass_client,
                 )
             except Exception:
                 logger.exception("tick failed")

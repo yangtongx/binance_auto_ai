@@ -21,6 +21,8 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "gymnasium>=0.29.0"]
 realtime = ["websocket-client>=1.7.0"]
+# CoinGlass 衍生品数据选币维度（socks 代理另需 PySocks：requests[socks]）
+coinglass = ["requests>=2.31.0"]
 ml-torch = ["torch>=2.1.0"]
 ml-tf = ["tensorflow>=2.15.0"]
 rl = ["stable-baselines3>=2.3.0", "gymnasium>=0.29"]

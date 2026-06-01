@@ -31,6 +31,8 @@ _RANK_METRICS = frozenset(
         # 资金费率（永续拥挤度，需 fetch_funding_rates）
         "funding",
         "abs_funding",
+        # CoinGlass 聚合持仓量变化%（跨交易所，需 COINGLASS_API_KEY）
+        "cg_oi_change",
     }
 )
 _METRIC_ALIASES = {
@@ -39,11 +41,15 @@ _METRIC_ALIASES = {
     "trend": "momentum",
     "funding_rate": "funding",
     "abs_funding_rate": "abs_funding",
+    "oi_change": "cg_oi_change",
+    "cg_oi": "cg_oi_change",
 }
 # 需要逐币 OHLCV 才能算的指标（两段式：先按流动性短名单，再对短名单拉 K 线）
 _OHLCV_RANK_METRICS = frozenset({"momentum"})
 # 需要 fetch_funding_rates 的指标
 _FUNDING_RANK_METRICS = frozenset({"funding", "abs_funding"})
+# 需要 CoinGlass 数据的指标
+_COINGLASS_RANK_METRICS = frozenset({"cg_oi_change"})
 # momentum 短名单大小（避免对全市场逐币拉 OHLCV）：max(count * 倍数, 下限)
 _MOMENTUM_SHORTLIST_MULT = 5
 _MOMENTUM_SHORTLIST_MIN = 30
@@ -207,7 +213,7 @@ def _rank_score(
 def _format_score(metric: str, score: float) -> str:
     if metric in ("quote_volume", "liquidity"):
         return f"vol={score / 1e6:.1f}M"
-    if metric in ("abs_change", "change"):
+    if metric in ("abs_change", "change", "cg_oi_change"):
         return f"{score:+.2f}%"
     if metric == "open_interest":
         return f"{score / 1e6:.2f}M"
@@ -412,15 +418,36 @@ def select_top_usdm_candidates(
     *,
     equity_usdt: float | None = None,
     available_margin_usdt: float | None = None,
+    coinglass: Any = None,
 ) -> list[str]:
     """
     Filter USDT linear perpetuals, rank by ``SYMBOL_CANDIDATES_RANK_BY``, return top N.
 
     ``SYMBOL_CANDIDATES_MIN_QUOTE_VOLUME_USDT`` is only a liquidity floor (0 = off), not the rank key.
+    ``coinglass`` 为可选的 ``CoinglassClient``（None 时按需自建；key 为空则相关维度/过滤自动关闭）。
     """
     exclude = {s.strip() for s in parse_symbol_candidates(settings.symbol_candidates_exclude) if s.strip()}
     metrics = settings.candidate_rank_metrics()
     weights = settings.candidate_rank_weights()
+
+    # CoinGlass 数据（聚合 OI 变化维度 / 资金费率过滤）；失败/未启用 → 空 map，相关功能自动降级
+    need_coinglass = settings.coinglass_enabled() and (
+        "cg_oi_change" in metrics or settings.coinglass_max_abs_funding_pct > 0.0
+    )
+    cg_map: dict[str, dict[str, float | None]] = {}
+    if need_coinglass:
+        if coinglass is None:
+            from binance_auto_ai.coinglass import build_coinglass_client
+
+            coinglass = build_coinglass_client(settings)
+        if coinglass is not None:
+            try:
+                cg_map = coinglass.coin_metrics()
+            except Exception as e:  # noqa: BLE001
+                logger.warning("CoinGlass coin_metrics failed (%s); cg metrics/filter skipped", e)
+                cg_map = {}
+    max_abs_funding = float(settings.coinglass_max_abs_funding_pct)
+    skipped_funding: list[tuple[str, float]] = []
 
     try:
         tickers = ex.fetch_tickers()
@@ -439,8 +466,12 @@ def select_top_usdm_candidates(
     max_abs_change = float(settings.symbol_candidates_max_abs_change_pct)
     refresh_seed = time.strftime("%Y-%m-%d-%H", time.gmtime())
     skipped_pump: list[tuple[str, float]] = []
-    # 仅用 ticker 即可算的指标在主循环里算；momentum/funding 需额外请求，循环后再补
-    ticker_metrics = [m for m in metrics if m not in _OHLCV_RANK_METRICS and m not in _FUNDING_RANK_METRICS]
+    # 仅用 ticker 即可算的指标在主循环里算；momentum/funding/coinglass 需额外数据，单独补
+    ticker_metrics = [
+        m
+        for m in metrics
+        if m not in _OHLCV_RANK_METRICS and m not in _FUNDING_RANK_METRICS and m not in _COINGLASS_RANK_METRICS
+    ]
     # (sym, ticker, last, metric_values)
     passed: list[tuple[str, dict[str, Any], float, dict[str, float]]] = []
 
@@ -462,6 +493,13 @@ def select_top_usdm_candidates(
             if pct is not None and abs(pct) > max_abs_change:
                 skipped_pump.append((sym, pct))
                 continue
+        if max_abs_funding > 0 and cg_map:
+            cg_row = cg_map.get(_base_asset(sym))
+            if cg_row is not None:
+                fr = cg_row.get("funding_rate")
+                if fr is not None and abs(fr) > max_abs_funding:
+                    skipped_funding.append((sym, fr))
+                    continue
         last = ticker.get("last") or ticker.get("close")
         try:
             last_f = float(last) if last is not None else 0.0
@@ -487,6 +525,10 @@ def select_top_usdm_candidates(
             score = _rank_score(metric, symbol=sym, ticker=ticker, last=last_f, refresh_seed=refresh_seed)
             if score is not None:
                 metric_values[metric] = score
+        if "cg_oi_change" in metrics and cg_map:
+            cg_row = cg_map.get(_base_asset(sym))
+            if cg_row is not None and cg_row.get("oi_change_pct") is not None:
+                metric_values["cg_oi_change"] = float(cg_row["oi_change_pct"])
         passed.append((sym, ticker, last_f, metric_values))
 
     # 资金费率维度（一次性拉取，写回各币 metric_values）
@@ -555,6 +597,17 @@ def select_top_usdm_candidates(
             more,
         )
 
+    if skipped_funding:
+        sample = ", ".join(f"{s}({fr:+.4f})" for s, fr in skipped_funding[:5])
+        more = "" if len(skipped_funding) <= 5 else f" …(+{len(skipped_funding) - 5})"
+        logger.info(
+            "auto candidates: skipped %s crowded symbols (|CoinGlass funding| > %s): %s%s",
+            len(skipped_funding),
+            max_abs_funding,
+            sample,
+            more,
+        )
+
     rows.sort(key=lambda x: (-x[0], x[1]))
     count = int(settings.symbol_candidates_count)
     picked = [sym for _score, sym in rows[:count]]
@@ -594,10 +647,19 @@ def select_top_usdm_candidates(
 class CandidatePool:
     """signal_pick 候选池：手动列表或按 SYMBOL_CANDIDATES_REFRESH_* 定时自动刷新。"""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, coinglass: Any = None) -> None:
         self._settings = settings
         self._symbols: list[str] = []
         self._last_refresh_monotonic = 0.0
+        self._coinglass = coinglass
+        if self._coinglass is None and settings.coinglass_enabled():
+            from binance_auto_ai.coinglass import build_coinglass_client
+
+            self._coinglass = build_coinglass_client(settings)
+
+    @property
+    def coinglass(self) -> Any:
+        return self._coinglass
 
     @property
     def is_auto(self) -> bool:
@@ -625,6 +687,7 @@ class CandidatePool:
                 self._settings,
                 equity_usdt=equity,
                 available_margin_usdt=margin,
+                coinglass=self._coinglass,
             )
             if len(picked) < 2:
                 picked = _fallback_candidates(

@@ -86,6 +86,7 @@ copy .env.example .env   # Windows；Unix 用 cp
 | `ml-torch` | `pip install -e ".[ml-torch]"` | PyTorch：**TorchScript 推理** + **训练示例** |
 | `ml-tf` | `pip install -e ".[ml-tf]"` | TensorFlow/Keras：**仅扁平** MLP 推理 |
 | `rl` | `pip install -e ".[rl]"` | **stable-baselines3** + **gymnasium**（**`rl_sb3`** 与 **`train_rl_sb3.py`**） |
+| `coinglass` | `pip install -e ".[coinglass]"` | **requests**（CoinGlass 选币维度；socks 代理另需 `requests[socks]` / PySocks） |
 
 安装后可使用入口命令：
 
@@ -130,6 +131,7 @@ docker run --rm \
 - **LLM（`SIGNAL_SOURCE=llm`）：** `OPENAI_API_KEY`、可选 `OPENAI_BASE_URL`、`OPENAI_MODEL`、超时与重试  
 - **交易：** `SYMBOL`（如 `BTC/USDT:USDT`）、`TIMEFRAME`、`KLINES_LIMIT`、`MAX_NOTIONAL_USDT`、`DRY_RUN`、`MIN_CONFIDENCE`  
 - **选币（可选）：** **`SYMBOL_MODE`**（`single` \| `signal_pick`）、**`SYMBOL_CANDIDATES`**（`auto` 或手写列表）、**`SYMBOL_CANDIDATES_COUNT`**（2–12）、**`SYMBOL_CANDIDATES_RANK_BY` / `_WEIGHTS`**、流动性下限、暴涨暴跌黑名单、刷新间隔、**`SYMBOL_ROTATION_HYSTERESIS`**（见下文 [选币（signal_pick）](#选币signal_pick)）  
+- **CoinGlass（可选）：** **`COINGLASS_API_KEY`**、`COINGLASS_BASE_URL`、`COINGLASS_TIMEOUT_SEC`、`COINGLASS_CACHE_TTL_SEC`、**`COINGLASS_MAX_ABS_FUNDING_PCT`**（聚合资金费率过滤）；需 `.[coinglass]`，为空则相关维度/过滤关闭  
 - **仓位与杠杆：** **`POSITION_SIZING`**（`fixed` \| `equity_leverage` \| `available_margin_leverage`）、**`LEVERAGE`**、**`LEVERAGE_MODE`**（`fixed` \| `max`）、`STRATEGY_SIZE_PCT`、`MAX_NOTIONAL_USDT`（见下文 [仓位与杠杆](#仓位与杠杆)）  
 - **主动离场（可选）：** **`EXIT_STOP_LOSS_PCT`、`EXIT_TAKE_PROFIT_PCT`、`EXIT_TRAILING_PCT`、`EXIT_MAX_HOLD_MINUTES`、`EXIT_TAKE_PROFIT_ROE_PCT`、`EXIT_STOP_LOSS_ROE_PCT`**（默认全 0=关闭；见下文 [主动离场](#主动离场)）  
 - **规则信号：** `STRATEGY_NAME` 及 Ichimoku / Fib / VP / Stoch / ATR / ML 等 **`STRATEGY_*`（见下文 [内置规则策略](#内置规则策略) 与 `.env.example`）**  
@@ -317,9 +319,12 @@ binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-
 | `abs_change` / `change` | 24h 涨跌幅（绝对值 / 带符号） |
 | `momentum`（别名 `trend`） | **趋势强度** `\|SMA_fast−SMA_slow\|/价`，用 **`STRATEGY_FAST/SLOW`** 与 **`TIMEFRAME`**，与交易策略对齐；**两段式**（先按流动性取短名单，再逐币拉 OHLCV，避免对全市场逐币请求） |
 | `funding` / `abs_funding`（别名 `funding_rate`） | 资金费率（带符号 / 绝对值=拥挤度），经 `fetch_funding_rates`；不可用时该维度自动降级 |
+| `cg_oi_change`（别名 `oi_change`） | **CoinGlass 跨交易所聚合持仓量变化%**——确认趋势有真金白银跟随；需 `COINGLASS_API_KEY`，否则该维度自动降级 |
 | `random` | 伪随机（每小时种子），用于打散 |
 
+- **CoinGlass 过滤（可选）**：设 **`COINGLASS_MAX_ABS_FUNDING_PCT`** 后，按 CoinGlass **聚合资金费率** 剔除过度拥挤（易插针爆仓）的币（类似暴涨暴跌黑名单）。
 - **刷新**：**`SYMBOL_CANDIDATES_REFRESH_MINUTES`**（>0 时覆盖 `_HOURS`）。`SYMBOL_CANDIDATES=auto` 也可改为手写列表（2–12 个）。
+- **CoinGlass 接入**：`pip install -e ".[coinglass]"` 并设 **`COINGLASS_API_KEY`**（V4，鉴权头 `CG-API-KEY`）。一次 `coins-markets` 快照按 TTL 缓存；未装/无 key/请求失败时 `cg_oi_change` 与资金费率过滤**自动关闭**，不影响主流程。推荐 `RANK_BY=momentum,cg_oi_change,liquidity`。
 
 **单仓轮换**（`symbol_picker.plan_signal_pick_trades`）：空仓→开最强方向；持仓币仍最强→维持；出现更强的别的币→**先平再换**（2 笔）；持仓币给 `flat`→平仓；池外仓→平掉。**`SYMBOL_ROTATION_HYSTERESIS`**（默认 `0.05`）：只有新标的方向置信度 **≥ 在手仓 + 该值** 才换币，降低 1m/5m 噪声下的频繁换手（换手吃 taker 手续费 + 滑点）。
 
@@ -337,12 +342,15 @@ binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-
 | `EXIT_MAX_HOLD_MINUTES` | 持仓超时：持仓达该分钟数即平仓 |
 | `EXIT_TAKE_PROFIT_ROE_PCT` | 按**回报率** ROE 止盈：**`100` = 浮盈达到该仓保证金的 100%** |
 | `EXIT_STOP_LOSS_ROE_PCT` | 按 ROE 止损：亏到保证金的该 %（如 `80`）即平仓 |
+| `EXIT_CG_OI_DROP_PCT` | **CoinGlass OI 骤降离场**：有浮盈时聚合 OI 变化% ≤ -该值（趋势衰竭）即落袋（需 `COINGLASS_API_KEY`）|
+| `EXIT_CG_ADVERSE_FUNDING` | **逆向资金费率护栏**：做多时聚合资金费率 ≥ 该值 / 做空时 ≤ -该值（过度拥挤）即离场（需 `COINGLASS_API_KEY`）|
 
 **说明：**
 
 - **两种口径**：`EXIT_*_PCT` 是 **入场价的价格变动 %**；`EXIT_*_ROE_PCT` 是 **回报率 ROE = 收益 / 保证金 = 价格变动% × 杠杆**。
   - 例：杠杆 `100x` 时 `EXIT_TAKE_PROFIT_ROE_PCT=100`（浮盈=保证金）≈ 价格仅需有利变动 **1%**；杠杆越高触发越"贴身"。ROE 模式会按 `LEVERAGE_MODE` 解析该币实际杠杆。
 - 入场价取自交易所 **`entryPrice`**。**止损/止盈**（含 ROE）仅依赖入场价，**进程重启后照常生效**；**移动止盈/超时** 依赖内存状态（最高浮盈、首次见到时刻），**重启后会重新基准化**（偏保守）。
+- **CoinGlass 离场**（`EXIT_CG_*`）复用选币那套聚合数据（共享客户端 + TTL 缓存）：是**趋势/拥挤层面**的补充判断，属慢信号、有延迟；**取不到数据或 key 为空时自动跳过，绝不影响价格类止损**。
 - 仅在每个 tick（对齐 K 线收盘）判断，**非逐笔实时**；需要硬实时保护可在交易所侧另挂 `STOP_MARKET` 条件单。
 
 ---
