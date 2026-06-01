@@ -39,4 +39,5 @@ else
 fi
 
 echo "Deploy: bash scripts/deploy.sh"
+echo "Fresh server: sudo bash scripts/bootstrap-server.sh"
 echo "Next: docker compose run --rm bot python -m binance_auto_ai.cli --smoke"
