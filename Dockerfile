@@ -3,10 +3,17 @@ FROM python:3.12-slim AS builder
 
 WORKDIR /build
 
+# ccxt 依赖 coincurve，在 slim 上需要编译工具
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libc6-dev && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml requirements-lock.txt README.md ./
 COPY src/ src/
 
-RUN pip install --no-cache-dir --prefix=/install ".[coinglass]"
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir --prefix=/install . && \
+    pip install --no-cache-dir --prefix=/install "requests>=2.31.0"
 
 # ---- 运行阶段 ----
 FROM python:3.12-slim
