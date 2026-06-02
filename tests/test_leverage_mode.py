@@ -7,8 +7,8 @@ from pydantic import ValidationError
 
 from binance_auto_ai import exchange_env
 from binance_auto_ai.config import Settings
-from binance_auto_ai.exchange_env import effective_leverage, symbol_max_leverage
-from binance_auto_ai.execution_helpers import directional_notional_or_skip
+from binance_auto_ai.exchange_env import effective_leverage, symbol_max_leverage, symbol_max_notional_at_leverage
+from binance_auto_ai.execution_helpers import cap_notional_for_exchange, directional_notional_or_skip
 from binance_auto_ai.schemas import Action, LLMSignal
 
 
@@ -29,6 +29,7 @@ class _LevEx:
 
 def _clear_cache() -> None:
     exchange_env._MAX_LEVERAGE_CACHE.clear()
+    exchange_env._LEVERAGE_TIER_CACHE.clear()
 
 
 def test_leverage_mode_validation() -> None:
@@ -81,3 +82,33 @@ def test_equity_leverage_margin_is_size_pct_of_equity() -> None:
     notional = directional_notional_or_skip(s, sig, equity_usdt=1000.0, available_margin_usdt=None)
     assert notional == pytest.approx(1000.0 * 125.0 * 0.05)  # 6250
     assert notional / 125.0 == pytest.approx(50.0)  # 5% of 1000
+
+
+def test_symbol_max_notional_at_leverage() -> None:
+    _clear_cache()
+    sym = "BTC/USDT:USDT"
+    tiers = {
+        sym: [
+            {"maxLeverage": 125, "maxNotional": 50_000.0},
+            {"maxLeverage": 50, "maxNotional": 250_000.0},
+        ]
+    }
+    ex = _LevEx(tiers=tiers)
+    assert symbol_max_notional_at_leverage(ex, sym, 125) == 50_000.0  # type: ignore[arg-type]
+    assert symbol_max_notional_at_leverage(ex, sym, 50) == 250_000.0  # type: ignore[arg-type]
+    assert symbol_max_notional_at_leverage(ex, sym, 75) == 50_000.0  # type: ignore[arg-type]
+
+
+def test_cap_notional_for_exchange_bracket_and_margin() -> None:
+    _clear_cache()
+    sym = "DOGE/USDT:USDT"
+    ex = _LevEx(tiers={sym: [{"maxLeverage": 125, "maxNotional": 1_000.0}]})
+    s = Settings.model_construct(leverage=125.0, max_notional_usdt=100_000.0)
+    capped = cap_notional_for_exchange(ex, sym, s, 5_000.0, exposure_abs=0.0, available_margin_usdt=100.0)  # type: ignore[arg-type]
+    assert capped == pytest.approx(1_000.0)
+
+    capped2 = cap_notional_for_exchange(ex, sym, s, 500.0, exposure_abs=800.0, available_margin_usdt=None)  # type: ignore[arg-type]
+    assert capped2 == pytest.approx(200.0)
+
+    capped3 = cap_notional_for_exchange(ex, sym, s, 500.0, exposure_abs=0.0, available_margin_usdt=2.0)  # type: ignore[arg-type]
+    assert capped3 == pytest.approx(2.0 * 125.0 * 0.95)

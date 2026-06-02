@@ -8,6 +8,7 @@ from typing import Callable
 import ccxt
 
 from binance_auto_ai.config import Settings
+from binance_auto_ai.exchange_env import symbol_max_notional_at_leverage
 from binance_auto_ai.order_utils import (
     amount_respects_limits,
     format_amount_limits_skip,
@@ -78,6 +79,50 @@ def directional_notional_or_skip(
     return requested
 
 
+def cap_notional_for_exchange(
+    ex: ccxt.binanceusdm,
+    symbol: str,
+    settings: Settings,
+    requested: float,
+    *,
+    exposure_abs: float,
+    available_margin_usdt: float | None = None,
+) -> float:
+    """按杠杆档位上限与可用保证金收紧意向名义，避免 Binance -2027 等拒单。"""
+    target = max(0.0, float(requested))
+    if target <= 0:
+        return 0.0
+
+    lev = float(settings.leverage)
+    bracket_cap = symbol_max_notional_at_leverage(ex, symbol, lev)
+    if bracket_cap is not None:
+        bracket_room = max(0.0, bracket_cap - exposure_abs)
+        if bracket_room + 1e-9 < target:
+            logger.info(
+                "cap notional %.2f -> %.2f (leverage %.0fx bracket max %.2f, exposure %.2f)",
+                target,
+                bracket_room,
+                lev,
+                bracket_cap,
+                exposure_abs,
+            )
+            target = bracket_room
+
+    if available_margin_usdt is not None and available_margin_usdt > 0 and lev > 0:
+        margin_room = float(available_margin_usdt) * lev * 0.95
+        if margin_room + 1e-9 < target:
+            logger.info(
+                "cap notional %.2f -> %.2f (available margin %.2f × leverage %.0f × 0.95)",
+                target,
+                margin_room,
+                available_margin_usdt,
+                lev,
+            )
+            target = margin_room
+
+    return max(0.0, target)
+
+
 def close_reduce_only_and_refresh(
     ex: ccxt.binanceusdm,
     symbol: str,
@@ -125,12 +170,24 @@ def open_market_within_notional_cap(
     success_log: str,
     skip_cap_log: str,
     skip_limits_log: str,
+    available_margin_usdt: float | None = None,
 ) -> None:
     """
-    在 MAX_NOTIONAL_USDT 剩余额度内下市价单。
+    在 MAX_NOTIONAL_USDT 剩余额度内下市价单；先按杠杆档位与可用保证金收紧 requested。
 
     exposure_abs：该币已占用名义（净仓或单腿），room = cap - exposure_abs。
     """
+    requested = cap_notional_for_exchange(
+        ex,
+        symbol,
+        settings,
+        requested,
+        exposure_abs=exposure_abs,
+        available_margin_usdt=available_margin_usdt,
+    )
+    if requested <= 0:
+        logger.info("%s", skip_cap_log)
+        return
     room = max(0.0, settings.max_notional_usdt - exposure_abs)
     target_notional = min(requested, room)
     if target_notional <= 0:

@@ -95,6 +95,7 @@ def execute_oneway(
                 f"(abs_notional≈{abs_notional:.4f}, cap={settings.max_notional_usdt})"
             ),
             skip_limits_log="LONG skipped — amount %s fails exchange min amount/cost",
+            available_margin_usdt=available_margin_usdt,
         )
 
     elif signal.action == Action.SHORT:
@@ -131,4 +132,5 @@ def execute_oneway(
                 f"(abs_notional≈{abs_notional:.4f}, cap={settings.max_notional_usdt})"
             ),
             skip_limits_log="SHORT skipped — amount %s fails exchange min amount/cost",
+            available_margin_usdt=available_margin_usdt,
         )

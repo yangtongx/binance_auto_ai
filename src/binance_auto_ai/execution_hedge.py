@@ -120,6 +120,7 @@ def execute_hedged(
             success_log="HEDGE LONG market buy amount=%s (notional≈%s USDT, room=%s)",
             skip_cap_log=(f"HEDGE LONG skipped — long leg at cap (long_notional≈{long_n:.4f})"),
             skip_limits_log="HEDGE LONG skipped — amount %s fails min amount/cost",
+            available_margin_usdt=available_margin_usdt,
         )
 
     elif signal.action == Action.SHORT:
@@ -153,4 +154,5 @@ def execute_hedged(
             success_log="HEDGE SHORT market sell amount=%s (notional≈%s USDT, room=%s)",
             skip_cap_log=(f"HEDGE SHORT skipped — short leg at cap (short_notional≈{short_n:.4f})"),
             skip_limits_log="HEDGE SHORT skipped — amount %s fails min amount/cost",
+            available_margin_usdt=available_margin_usdt,
         )

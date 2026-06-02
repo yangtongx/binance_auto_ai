@@ -108,6 +108,78 @@ def apply_binance_usdm_environment(ex: ccxt.binanceusdm, *, testnet: bool) -> No
 
 # 每个交易对的最大可用杠杆缓存（避免重复查询交易所）
 _MAX_LEVERAGE_CACHE: dict[str, float] = {}
+_LEVERAGE_TIER_CACHE: dict[str, list[dict]] = {}
+
+
+def _tier_leverage(tier: dict) -> float | None:
+    for key in ("maxLeverage", "initialLeverage", "max_leverage", "initial_leverage"):
+        raw = tier.get(key)
+        if raw is None:
+            continue
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _tier_notional_cap(tier: dict) -> float | None:
+    for key in ("maxNotional", "notionalCap", "max_notional", "notional_cap"):
+        raw = tier.get(key)
+        if raw is None:
+            continue
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def fetch_symbol_leverage_tiers(ex: ccxt.binanceusdm, symbol: str) -> list[dict]:
+    """拉取并缓存该 symbol 的杠杆分层（需 API；失败返回空）。"""
+    if symbol in _LEVERAGE_TIER_CACHE:
+        return _LEVERAGE_TIER_CACHE[symbol]
+    rows: list[dict] = []
+    try:
+        data = ex.fetch_leverage_tiers([symbol])
+        raw = (data or {}).get(symbol) or []
+        rows = [r for r in raw if isinstance(r, dict)]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("fetch_leverage_tiers failed for %s: %s", symbol, e)
+    _LEVERAGE_TIER_CACHE[symbol] = rows
+    return rows
+
+
+def symbol_max_notional_at_leverage(ex: ccxt.binanceusdm, symbol: str, leverage: float) -> float | None:
+    """当前杠杆档位下该 symbol 允许的最大持仓名义（USDT）；用于避免 Binance -2027。"""
+    if leverage <= 0:
+        return None
+    tiers = fetch_symbol_leverage_tiers(ex, symbol)
+    if not tiers:
+        return None
+    lev = float(leverage)
+    exact: float | None = None
+    candidates: list[tuple[float, float]] = []
+    for tier in tiers:
+        ml = _tier_leverage(tier)
+        cap = _tier_notional_cap(tier)
+        if ml is None or cap is None:
+            continue
+        if abs(ml - lev) < 0.51:
+            exact = cap
+            break
+        if ml >= lev - 0.5:
+            candidates.append((ml, cap))
+    if exact is not None:
+        return exact
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
 
 
 def symbol_max_leverage(ex: ccxt.binanceusdm, symbol: str) -> float | None:
@@ -130,13 +202,12 @@ def symbol_max_leverage(ex: ccxt.binanceusdm, symbol: str) -> float | None:
             max_lev = None
     if max_lev is None:
         try:
-            tiers = ex.fetch_leverage_tiers([symbol])
-            rows = (tiers or {}).get(symbol) or []
-            cand = max((float(t.get("maxLeverage") or 0) for t in rows), default=0.0)
+            tiers = fetch_symbol_leverage_tiers(ex, symbol)
+            cand = max((_tier_leverage(t) or 0.0 for t in tiers), default=0.0)
             if cand > 0:
                 max_lev = cand
         except Exception as e:  # noqa: BLE001 - 无 API/不支持时优雅降级
-            logger.debug("fetch_leverage_tiers failed for %s: %s", symbol, e)
+            logger.debug("leverage tiers max for %s failed: %s", symbol, e)
     if max_lev is not None:
         _MAX_LEVERAGE_CACHE[symbol] = max_lev
     return max_lev
