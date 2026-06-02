@@ -127,6 +127,13 @@ chmod 600 .env 2>/dev/null || true
 
 echo "==> ensure secrets/ and state/"
 mkdir -p secrets state
+if chown -R 1000:1000 state 2>/dev/null; then
+  :
+elif [[ "${EUID:-$(id -u)}" -eq 0 ]]; then
+  chown -R 1000:1000 state
+else
+  echo "NOTE: 无法 chown state/（非 root）；若容器报 state 权限错误，请 sudo chown -R 1000:1000 state"
+fi
 for f in binance_api_key binance_api_secret openai_api_key telegram_bot_token telegram_chat_id coinglass_api_key; do
   if [[ ! -f "secrets/$f" ]]; then
     : >"secrets/$f"
