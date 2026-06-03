@@ -119,12 +119,16 @@ def notify_real_order(
     symbol: str,
     signal: LLMSignal,
     source: str,
+    mark_price_usdt: float | None = None,
 ) -> None:
     if not settings.telegram_notify_orders or not telegram_configured(settings):
         return
     sym_settings = settings.model_copy(update={"symbol": symbol})
     base = format_trade_message(sym_settings, signal, source=source)
-    send_telegram_message(settings, f"✅ 实盘下单\n{SEPARATOR}\n{base}")
+    price_line = ""
+    if mark_price_usdt is not None and mark_price_usdt > 0:
+        price_line = f"\n价格  {mark_price_usdt:.6g} USDT"
+    send_telegram_message(settings, f"✅ 实盘下单\n{SEPARATOR}\n{base}{price_line}")
 
 
 def notify_tick_error(settings: Settings, message: str) -> None:

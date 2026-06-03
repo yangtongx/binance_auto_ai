@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from binance_auto_ai.config import Settings
 from binance_auto_ai.schemas import LLMSignal
+from binance_auto_ai.signal_reason_zh import reason_to_zh
 
 _ACTION_EMOJI = {
     "long": "🟢",
@@ -64,7 +65,7 @@ def build_trade_context(settings: Settings, signal: LLMSignal, **kwargs: object)
         "action_cn": _ACTION_CN.get(action_value, action_value),
         "size_pct": float(signal.size_pct),
         "confidence": float(signal.confidence),
-        "reason": signal.reason or "—",
+        "reason": reason_to_zh(signal.reason),
         "timeframe": settings.timeframe,
         "dry_run": str(settings.dry_run),
         "mode_label": mode_label,

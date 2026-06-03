@@ -178,7 +178,7 @@ def place_order(
     params: dict[str, Any],
     dry_run: bool,
     session: SessionRisk | None,
-    on_real_order: Callable[[], None] | None = None,
+    on_real_order: Callable[[float], None] | None = None,
 ) -> None:
     logger.info("ORDER %s %s amount=%s params=%s dry_run=%s", side, symbol, amount, params, dry_run)
     if dry_run:
@@ -192,6 +192,6 @@ def place_order(
         return
     ex.create_order(symbol, "market", side, amount, params=params)
     if on_real_order is not None:
-        on_real_order()
+        on_real_order(last)
     if session is not None:
         session.record_executed_order()

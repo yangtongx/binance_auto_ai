@@ -32,7 +32,7 @@ def execute_hedged(
     last: float,
     equity_usdt: float | None = None,
     available_margin_usdt: float | None = None,
-    on_real_order: Callable[[], None] | None = None,
+    on_real_order: Callable[[float], None] | None = None,
 ) -> None:
     """分别平多腿、平空腿；开多时先平空腿。与币安双向持仓账户设置一致。"""
     symbol = settings.symbol

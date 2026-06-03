@@ -30,6 +30,37 @@ def test_should_notify_trade_signal_modes() -> None:
     assert should_notify_trade_signal(s_off, sig_long) is False
 
 
+def test_notify_real_order_includes_mark_price(monkeypatch) -> None:
+    sent: list[str] = []
+
+    def _fake_send(_s: Settings, text: str, **_: object) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("binance_auto_ai.telegram_notify.send_telegram_message", _fake_send)
+    s = Settings.model_construct(
+        telegram_bot_token="t",
+        telegram_chat_id="c",
+        telegram_notify_orders=True,
+        symbol="BTC/USDT:USDT",
+        dry_run=False,
+    )
+    sig = LLMSignal(action=Action.SHORT, size_pct=5.0, confidence=0.8, reason="fast cross below")
+    from binance_auto_ai.telegram_notify import notify_real_order
+
+    notify_real_order(s, symbol="BTC/USDT:USDT", signal=sig, source="strategy", mark_price_usdt=65432.1)
+    assert len(sent) == 1
+    assert "65432" in sent[0]
+    assert "价格" in sent[0]
+
+
+def test_format_trade_message_reason_zh() -> None:
+    s = Settings(symbol="ZEC/USDT:USDT", telegram_template="default")
+    sig = LLMSignal(action=Action.SHORT, size_pct=5.0, confidence=0.8, reason="fast cross below")
+    msg = format_trade_message(s, sig, source="strategy")
+    assert "快线下穿慢线" in msg
+    assert "fast cross below" not in msg
+
+
 def test_format_trade_message_default() -> None:
     s = Settings(telegram_template="compact")
     sig = LLMSignal(action=Action.LONG, size_pct=50.0, confidence=0.7, reason="test")

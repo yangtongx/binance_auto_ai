@@ -184,9 +184,15 @@ def _run_trade_step(
             detail=gate,
         )
         return False
-    def _on_real_order() -> None:
+    def _on_real_order(mark_price_usdt: float) -> None:
         metrics.record_real_order()
-        notify_real_order(settings, symbol=symbol, signal=signal, source=src)
+        notify_real_order(
+            settings,
+            symbol=symbol,
+            signal=signal,
+            source=src,
+            mark_price_usdt=mark_price_usdt,
+        )
 
     execute_signal(
         ex,

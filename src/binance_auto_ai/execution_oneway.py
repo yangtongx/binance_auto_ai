@@ -32,7 +32,7 @@ def execute_oneway(
     last: float,
     equity_usdt: float | None = None,
     available_margin_usdt: float | None = None,
-    on_real_order: Callable[[], None] | None = None,
+    on_real_order: Callable[[float], None] | None = None,
 ) -> None:
     """执行 flat / long / short；反向信号时先 reduceOnly 平掉对立仓再开仓。"""
     symbol = settings.symbol

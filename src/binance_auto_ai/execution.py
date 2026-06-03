@@ -96,7 +96,7 @@ def execute_signal(
     equity_usdt: float | None = None,
     available_margin_usdt: float | None = None,
     session: SessionRisk | None = None,
-    on_real_order: Callable[[], None] | None = None,
+    on_real_order: Callable[[float], None] | None = None,
 ) -> None:
     """根据信号执行 hold / flat / long / short；内部选择 execute_oneway 或 execute_hedged。"""
     if signal.action == Action.HOLD:
