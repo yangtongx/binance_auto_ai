@@ -15,7 +15,7 @@ from binance_auto_ai.execution_helpers import (
     open_market_within_notional_cap,
 )
 from binance_auto_ai.order_utils import place_order
-from binance_auto_ai.positions import PositionLegs, primary_exposure_notional_usdt
+from binance_auto_ai.positions import PositionLegs, fetch_position_legs, primary_exposure_notional_usdt
 from binance_auto_ai.schemas import Action, LLMSignal
 from binance_auto_ai.session_risk import SessionRisk
 
@@ -78,6 +78,12 @@ def execute_oneway(
             )
             abs_notional = primary_exposure_notional_usdt(legs, last)
 
+        legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
+        abs_notional = primary_exposure_notional_usdt(legs, last)
+        if legs.signed_net() > NET_POSITION_EPS_CONTRACTS:
+            logger.info("LONG skipped — already long (no add-on)")
+            return
+
         open_market_within_notional_cap(
             ex,
             symbol,
@@ -114,6 +120,12 @@ def execute_oneway(
                 log_message=f"close LONG before SHORT: sell reduceOnly amount={close_amt}",
             )
             abs_notional = primary_exposure_notional_usdt(legs, last)
+
+        legs = fetch_position_legs(ex, symbol, dry_run=settings.dry_run)
+        abs_notional = primary_exposure_notional_usdt(legs, last)
+        if legs.signed_net() < -NET_POSITION_EPS_CONTRACTS:
+            logger.info("SHORT skipped — already short (no add-on)")
+            return
 
         open_market_within_notional_cap(
             ex,

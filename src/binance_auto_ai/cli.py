@@ -23,6 +23,8 @@ from binance_auto_ai.binance_usdm import (
 from binance_auto_ai.active_exit import ExitTracker, held_exit_signal
 from binance_auto_ai.backtest.engine import Strategy
 from binance_auto_ai.config import Settings
+from binance_auto_ai.constants import NET_POSITION_EPS_CONTRACTS
+from binance_auto_ai.ohlcv_utils import drop_incomplete_last_candle
 from binance_auto_ai import dashboard_state, metrics
 from binance_auto_ai.llm_strategy import llm_decide
 from binance_auto_ai.strategy_factory import build_live_strategy, strategy_min_ohlcv_bars
@@ -31,6 +33,7 @@ from binance_auto_ai.risk import assess_signal
 from binance_auto_ai.risk_metrics import aligned_log_return_correlation, var_tail_block_reason_from_ohlcv
 from binance_auto_ai.schemas import Action
 from binance_auto_ai.session_risk import SessionRisk
+from binance_auto_ai.positions import fetch_position_legs
 from binance_auto_ai.symbol_picker import (
     evaluate_candidate_signals,
     log_candidate_signals,
@@ -39,6 +42,7 @@ from binance_auto_ai.symbol_picker import (
     resolve_held_symbol,
 )
 from binance_auto_ai.coinglass_alerts import CoinglassAlertWatcher, list_held_symbols
+from binance_auto_ai.coinglass_context import coinglass_llm_appendix, refresh_coinglass_market_views
 from binance_auto_ai.symbol_universe import CandidatePool
 from binance_auto_ai.telegram_notify import (
     notify_bot_started,
@@ -96,16 +100,25 @@ def _strategy_log_label(settings: Settings) -> str:
     return n
 
 
-def _sleep_until_next_minute_close(buffer_sec: float = 2.0) -> None:
-    """对齐到下一根 1m K 线收盘后再跑策略（默认多等 2 秒缓冲）。"""
+def _sleep_until_next_candle_close(timeframe: str, buffer_sec: float = 2.0) -> None:
+    """对齐到下一根 ``TIMEFRAME`` K 线收盘后再跑策略（避免未收盘 K 重复触发交叉）。"""
+    from binance_auto_ai.ohlcv_utils import timeframe_to_seconds
+
     now = time.time()
-    next_close = int(now // 60) * 60 + 60
+    tf_sec = timeframe_to_seconds(timeframe) or 60
+    next_close = int(now // tf_sec) * tf_sec + tf_sec
     sleep_s = max(0.0, next_close - now + buffer_sec)
-    logger.info("sleep %.1fs until next 1m candle close (+buffer)", sleep_s)
+    logger.info("sleep %.1fs until next %s candle close (+buffer)", sleep_s, timeframe)
     time.sleep(sleep_s)
 
 
-def _klines_prompt(ex, settings: Settings, *, account_context: str) -> str:
+def _klines_prompt(
+    ex,
+    settings: Settings,
+    *,
+    account_context: str,
+    coinglass: object | None = None,
+) -> str:
     ohlcv = ex.fetch_ohlcv(settings.symbol, timeframe=settings.timeframe, limit=settings.klines_limit)
     rows = ["time,open,high,low,close,volume"]
     for ts, o, h, low, c, v in ohlcv[-30:]:
@@ -122,6 +135,7 @@ def _klines_prompt(ex, settings: Settings, *, account_context: str) -> str:
         Last candles (UTC, oldest->newest within sample):
         {table}
         Decide the next action for USDT-M perpetual. Prefer hold when uncertain.
+        {coinglass_llm_appendix(coinglass, settings, settings.symbol) if coinglass else ""}
         """
     ).strip()
 
@@ -267,6 +281,19 @@ def _tick_signal_pick(
     dashboard_state.set_signals(signals)
     if pick is not None:
         dashboard_state.note_pick(symbol=pick.symbol, signal=pick.signal, score=pick.score)
+    cg_syms: list[str] = []
+    if held:
+        cg_syms.append(held)
+    if pick is not None and pick.symbol not in cg_syms:
+        cg_syms.append(pick.symbol)
+    refresh_coinglass_market_views(ex, exit_coinglass, settings, cg_syms)
+    held_position_side: Action | None = None
+    if held is not None:
+        net = fetch_position_legs(ex, held, dry_run=settings.dry_run).signed_net()
+        if net > NET_POSITION_EPS_CONTRACTS:
+            held_position_side = Action.LONG
+        elif net < -NET_POSITION_EPS_CONTRACTS:
+            held_position_side = Action.SHORT
     steps = plan_signal_pick_trades(
         signals,
         candidates=candidates,
@@ -274,6 +301,7 @@ def _tick_signal_pick(
         held_outside_whitelist=held is not None and not held_in_whitelist,
         min_confidence=settings.min_confidence,
         rotation_hysteresis=settings.symbol_rotation_hysteresis,
+        held_position_side=held_position_side,
     )
     if not steps:
         logger.info("signal_pick: no trade steps this tick")
@@ -373,7 +401,10 @@ def _tick(
                     timeframe=settings.timeframe,
                     limit=need,
                 )
-            signal = rule_strategy.on_bar(len(ohlcv) - 1, ohlcv)
+            closed = drop_incomplete_last_candle(ohlcv, settings.timeframe)
+            if hasattr(rule_strategy, "reset"):
+                rule_strategy.reset()
+            signal = rule_strategy.on_bar(max(0, len(closed) - 1), closed)
             logger.info("strategy signal: %s", signal.model_dump())
             dashboard_state.set_candidates([settings.symbol])
             dashboard_state.set_signals({settings.symbol: signal})
@@ -412,9 +443,14 @@ def _tick(
                     except Exception as e:
                         logger.debug("aux correlation fetch failed: %s", e)
 
+            refresh_coinglass_market_views(ex, exit_coinglass, settings, [settings.symbol])
+
         else:
             account_ctx = format_account_context(ex, settings, account_hedged=account_hedged)
-            prompt = _klines_prompt(ex, settings, account_context=account_ctx)
+            refresh_coinglass_market_views(ex, exit_coinglass, settings, [settings.symbol])
+            prompt = _klines_prompt(
+                ex, settings, account_context=account_ctx, coinglass=exit_coinglass
+            )
             t0 = time.perf_counter()
             try:
                 signal = llm_decide(settings, prompt)
@@ -599,7 +635,7 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
                 except Exception:
                     logger.exception("candidate pool refresh failed")
             if not once:
-                _sleep_until_next_minute_close()
+                _sleep_until_next_candle_close(settings.timeframe)
                 if _stop_requested:
                     logger.info("stop requested during sleep; exiting")
                     break

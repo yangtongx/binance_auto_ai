@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from binance_auto_ai.active_exit import ExitTracker, held_exit_signal, pnl_pct_from_entry
+from binance_auto_ai.coinglass_derivatives import build_market_context
 from binance_auto_ai.config import Settings
 from binance_auto_ai.positions import fetch_position_entry
 from binance_auto_ai.schemas import Action
@@ -18,6 +19,13 @@ def _settings(**kw: object) -> Settings:
         exit_stop_loss_roe_pct=0.0,
         exit_cg_oi_drop_pct=0.0,
         exit_cg_adverse_funding=0.0,
+        exit_cg_top_account_crowd_pct=0.0,
+        exit_cg_top_position_crowd_pct=0.0,
+        exit_cg_global_long_crowd_pct=0.0,
+        exit_cg_net_position_against=0.0,
+        exit_cg_liq_cluster_usd=0.0,
+        coinglass_derivatives_on=True,
+        coinglass_api_key="k",
         leverage=1.0,
         leverage_mode="fixed",
         dry_run=False,
@@ -152,6 +160,25 @@ def test_cg_adverse_funding_guard() -> None:
     assert t3.update_and_check(
         "Z", side="long", entry_price=100.0, mark=100.0, settings=s, cg_funding_rate=0.01
     ).should_exit is False
+
+
+def test_cg_top_account_crowd_exit() -> None:
+    s = _settings(exit_cg_top_account_crowd_pct=70.0)
+    t = ExitTracker()
+    ctx = build_market_context(
+        symbol="BTC/USDT:USDT",
+        mark_price=100.0,
+        top_account_row={"top_account_long_percent": 80, "top_account_short_percent": 20, "top_account_long_short_ratio": 4},
+        top_position_row=None,
+        global_account_row=None,
+        net_position_row=None,
+        liq_summary=None,
+    )
+    d = t.update_and_check(
+        "X", side="long", entry_price=100.0, mark=100.0, settings=s, cg_market=ctx
+    )
+    assert d.should_exit is True
+    assert "cg_crowd_top_account" in d.reason
 
 
 def test_cg_rules_inactive_without_data() -> None:

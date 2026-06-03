@@ -9,6 +9,7 @@ import ccxt
 
 from binance_auto_ai.backtest.engine import Strategy
 from binance_auto_ai.config import Settings
+from binance_auto_ai.ohlcv_utils import drop_incomplete_last_candle
 from binance_auto_ai.constants import NET_POSITION_EPS_CONTRACTS
 from binance_auto_ai.positions import fetch_position_legs
 from binance_auto_ai.risk_metrics import var_tail_block_reason_from_ohlcv
@@ -128,7 +129,11 @@ def evaluate_candidate_signals(
     signals: dict[str, LLMSignal] = {}
     for sym in candidates:
         ohlcv = ex.fetch_ohlcv(sym, timeframe=settings.timeframe, limit=ohlcv_limit)
-        sig = strategy.on_bar(len(ohlcv) - 1, ohlcv)
+        closed = drop_incomplete_last_candle(ohlcv, settings.timeframe)
+        if hasattr(strategy, "reset"):
+            strategy.reset()
+        bar_i = max(0, len(closed) - 1)
+        sig = strategy.on_bar(bar_i, closed)
         if (
             settings.risk_var_window > 0
             and settings.risk_var_block
@@ -156,6 +161,13 @@ def _flat_signal(*, reason: str) -> LLMSignal:
     return LLMSignal(action=Action.FLAT, size_pct=0.0, confidence=1.0, reason=reason)
 
 
+def _steps_for_held(symbol: str, signal: LLMSignal, *, held_position_side: Action | None) -> list[TickTradeStep]:
+    """已有同向净仓时不再重复下发 long/short（避免每分钟加仓）。"""
+    if held_position_side in (Action.LONG, Action.SHORT) and signal.action == held_position_side:
+        return []
+    return [TickTradeStep(symbol, signal)]
+
+
 def plan_signal_pick_trades(
     signals: dict[str, LLMSignal],
     *,
@@ -164,6 +176,7 @@ def plan_signal_pick_trades(
     held_outside_whitelist: bool,
     min_confidence: float,
     rotation_hysteresis: float = 0.0,
+    held_position_side: Action | None = None,
 ) -> list[TickTradeStep]:
     """
     单仓策略：
@@ -188,7 +201,7 @@ def plan_signal_pick_trades(
         if held_sig.action == Action.FLAT:
             return [TickTradeStep(held_symbol, held_sig)]
         if best is not None and best.symbol == held_symbol:
-            return [TickTradeStep(held_symbol, best.signal)]
+            return _steps_for_held(held_symbol, best.signal, held_position_side=held_position_side)
         held_score = _directional_score(held_sig, min_confidence=min_confidence)
         if best is not None and best.symbol != held_symbol:
             # 在手仍是有效方向信号时，新标的需明显更强（超出迟滞带）才换币
@@ -197,9 +210,9 @@ def plan_signal_pick_trades(
                     TickTradeStep(held_symbol, _flat_signal(reason=f"signal_pick: rotate to {best.symbol}")),
                     TickTradeStep(best.symbol, best.signal),
                 ]
-            return [TickTradeStep(held_symbol, held_sig)]
+            return _steps_for_held(held_symbol, held_sig, held_position_side=held_position_side)
         if held_score is not None:
-            return [TickTradeStep(held_symbol, held_sig)]
+            return _steps_for_held(held_symbol, held_sig, held_position_side=held_position_side)
         return []
 
     if best is not None:

@@ -33,6 +33,13 @@ _RANK_METRICS = frozenset(
         "abs_funding",
         # CoinGlass 聚合持仓量变化%（跨交易所，需 COINGLASS_API_KEY）
         "cg_oi_change",
+        # CoinGlass 微观结构（逐币 API，仅对流动性短名单拉取）
+        "cg_top_account_long",
+        "cg_top_position_long",
+        "cg_global_long",
+        "cg_net_position",
+        "cg_liq_below",
+        "cg_liq_above",
     }
 )
 _METRIC_ALIASES = {
@@ -43,13 +50,31 @@ _METRIC_ALIASES = {
     "abs_funding_rate": "abs_funding",
     "oi_change": "cg_oi_change",
     "cg_oi": "cg_oi_change",
+    "top_account_long": "cg_top_account_long",
+    "top_position_long": "cg_top_position_long",
+    "global_long": "cg_global_long",
+    "net_position": "cg_net_position",
+    "liq_below": "cg_liq_below",
+    "liq_above": "cg_liq_above",
 }
 # 需要逐币 OHLCV 才能算的指标（两段式：先按流动性短名单，再对短名单拉 K 线）
 _OHLCV_RANK_METRICS = frozenset({"momentum"})
 # 需要 fetch_funding_rates 的指标
 _FUNDING_RANK_METRICS = frozenset({"funding", "abs_funding"})
-# 需要 CoinGlass 数据的指标
-_COINGLASS_RANK_METRICS = frozenset({"cg_oi_change"})
+# 需要 CoinGlass coins-markets 批量快照
+_COINGLASS_BULK_RANK_METRICS = frozenset({"cg_oi_change"})
+# 需要逐币 CoinGlass 多空比/清算地图（流动性短名单）
+_COINGLASS_DERIV_RANK_METRICS = frozenset(
+    {
+        "cg_top_account_long",
+        "cg_top_position_long",
+        "cg_global_long",
+        "cg_net_position",
+        "cg_liq_below",
+        "cg_liq_above",
+    }
+)
+_COINGLASS_RANK_METRICS = _COINGLASS_BULK_RANK_METRICS | _COINGLASS_DERIV_RANK_METRICS
 # momentum 短名单大小（避免对全市场逐币拉 OHLCV）：max(count * 倍数, 下限)
 _MOMENTUM_SHORTLIST_MULT = 5
 _MOMENTUM_SHORTLIST_MIN = 30
@@ -376,6 +401,49 @@ def _attach_momentum_scores(
     return in_shortlist
 
 
+def _liquidity_shortlist_symbols(
+    passed: list[tuple[str, dict[str, Any], float, dict[str, float]]],
+    *,
+    count: int,
+) -> set[str]:
+    shortlist_n = min(len(passed), max(count * _MOMENTUM_SHORTLIST_MULT, _MOMENTUM_SHORTLIST_MIN))
+    ranked = sorted(
+        passed,
+        key=lambda row: _ticker_quote_volume_usdt(row[1]),
+        reverse=True,
+    )
+    return {sym for sym, _t, _l, _mv in ranked[:shortlist_n]}
+
+
+def _attach_coinglass_derivative_scores(
+    coinglass: Any,
+    settings: Settings,
+    passed: list[tuple[str, dict[str, Any], float, dict[str, float]]],
+    *,
+    only_symbols: set[str],
+    metrics: list[str],
+) -> None:
+    """对短名单逐币拉 CoinGlass 多空比/净仓/清算地图，写回 metric_values。"""
+    from binance_auto_ai.coinglass_derivatives import rank_metrics_from_context
+
+    want = [m for m in metrics if m in _COINGLASS_DERIV_RANK_METRICS]
+    if not want or coinglass is None:
+        return
+    for sym, _ticker, last_f, metric_values in passed:
+        if sym not in only_symbols:
+            continue
+        try:
+            ctx = coinglass.market_context(sym, mark_price=last_f)  # type: ignore[attr-defined]
+        except Exception as e:  # noqa: BLE001
+            logger.debug("cg derivative metrics failed for %s: %s", sym, e)
+            continue
+        if ctx is None:
+            continue
+        for k, v in rank_metrics_from_context(ctx).items():
+            if k in want:
+                metric_values[k] = v
+
+
 def _attach_funding_scores(
     ex: ccxt.binanceusdm,
     passed: list[tuple[str, dict[str, Any], float, dict[str, float]]],
@@ -430,10 +498,15 @@ def select_top_usdm_candidates(
     metrics = settings.candidate_rank_metrics()
     weights = settings.candidate_rank_weights()
 
-    # CoinGlass 数据（聚合 OI 变化维度 / 资金费率过滤）；失败/未启用 → 空 map，相关功能自动降级
-    need_coinglass = settings.coinglass_enabled() and (
-        "cg_oi_change" in metrics or settings.coinglass_max_abs_funding_pct > 0.0
+    # CoinGlass 数据（聚合 OI / 资金费率过滤 / 微观结构排名）；失败/未启用 → 空 map，相关功能自动降级
+    need_coinglass_bulk = settings.coinglass_enabled() and (
+        bool(_COINGLASS_BULK_RANK_METRICS.intersection(metrics))
+        or settings.coinglass_max_abs_funding_pct > 0.0
     )
+    need_coinglass_deriv = settings.coinglass_derivatives_enabled() and bool(
+        _COINGLASS_DERIV_RANK_METRICS.intersection(metrics)
+    )
+    need_coinglass = need_coinglass_bulk or need_coinglass_deriv
     cg_map: dict[str, dict[str, float | None]] = {}
     if need_coinglass:
         if coinglass is None:
@@ -539,18 +612,31 @@ def select_top_usdm_candidates(
         want_abs_funding="abs_funding" in metrics,
     )
 
-    # 趋势/动量维度：两段式（流动性短名单 → 逐币 OHLCV）；命中短名单后把最终排序范围收敛到短名单
-    momentum_shortlist: set[str] | None = None
+    count = int(settings.symbol_candidates_count)
+    restrict_shortlist: set[str] | None = None
+
+    # 趋势/动量维度：两段式（流动性短名单 → 逐币 OHLCV）
     if any(m in _OHLCV_RANK_METRICS for m in metrics) and passed:
-        momentum_shortlist = _attach_momentum_scores(
-            ex, settings, passed, count=int(settings.symbol_candidates_count)
+        restrict_shortlist = _attach_momentum_scores(ex, settings, passed, count=count)
+
+    # CoinGlass 微观结构：与动量共用流动性短名单（无动量时单独建短名单）
+    if need_coinglass_deriv and passed and coinglass is not None:
+        deriv_syms = restrict_shortlist or _liquidity_shortlist_symbols(passed, count=count)
+        _attach_coinglass_derivative_scores(
+            coinglass,
+            settings,
+            passed,
+            only_symbols=deriv_syms,
+            metrics=metrics,
         )
+        if restrict_shortlist is None and _COINGLASS_DERIV_RANK_METRICS.intersection(metrics):
+            restrict_shortlist = deriv_syms
 
     eligible: list[tuple[str, dict[str, float]]] = []
     for sym, _ticker, _last, metric_values in passed:
         if not metric_values:
             continue
-        if momentum_shortlist is not None and sym not in momentum_shortlist:
+        if restrict_shortlist is not None and sym not in restrict_shortlist:
             continue
         eligible.append((sym, metric_values))
 
@@ -609,7 +695,6 @@ def select_top_usdm_candidates(
         )
 
     rows.sort(key=lambda x: (-x[0], x[1]))
-    count = int(settings.symbol_candidates_count)
     picked = [sym for _score, sym in rows[:count]]
     if len(picked) < 2:
         logger.warning(

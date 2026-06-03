@@ -244,6 +244,13 @@ class Settings(BaseSettings):
     coinglass_max_abs_funding_pct: float = Field(
         default=0.0, ge=0.0, validation_alias="COINGLASS_MAX_ABS_FUNDING_PCT"
     )
+    # 清算地图 + 大户/全局多空比 + 净多空（日志/LLM/面板；需 API key）
+    coinglass_derivatives_on: bool = Field(default=True, validation_alias="COINGLASS_DERIVATIVES_ENABLED")
+    coinglass_exchange: str = Field(default="Binance", validation_alias="COINGLASS_EXCHANGE")
+    # 多空比 K 线周期；空则跟随 TIMEFRAME（如 5m）
+    coinglass_ls_interval: str = Field(default="", validation_alias="COINGLASS_LS_INTERVAL")
+    coinglass_liq_map_on: bool = Field(default=True, validation_alias="COINGLASS_LIQ_MAP_ENABLED")
+    coinglass_liq_map_range: str = Field(default="1d", validation_alias="COINGLASS_LIQ_MAP_RANGE")
     # --- CoinGlass 链上/流向 Telegram 告警（只通知不下单；需 COINGLASS_API_KEY + Telegram）---
     coinglass_alerts_on: bool = Field(default=False, validation_alias="COINGLASS_ALERT_ENABLED")
     coinglass_alert_interval_sec: float = Field(
@@ -300,6 +307,25 @@ class Settings(BaseSettings):
     exit_cg_oi_drop_pct: float = Field(default=0.0, ge=0.0, le=100_000.0, validation_alias="EXIT_CG_OI_DROP_PCT")
     # 逆向资金费率护栏：做多时聚合资金费率 ≥ 该值、做空时 ≤ -该值（过度拥挤）即离场。单位同 CoinGlass 返回
     exit_cg_adverse_funding: float = Field(default=0.0, ge=0.0, validation_alias="EXIT_CG_ADVERSE_FUNDING")
+    # 大户账号多空比拥挤：持多且大户做多%≥该值 / 持空且大户做空%≥该值 即离场。0=关闭
+    exit_cg_top_account_crowd_pct: float = Field(
+        default=0.0, ge=0.0, le=100.0, validation_alias="EXIT_CG_TOP_ACCOUNT_CROWD_PCT"
+    )
+    exit_cg_top_position_crowd_pct: float = Field(
+        default=0.0, ge=0.0, le=100.0, validation_alias="EXIT_CG_TOP_POSITION_CROWD_PCT"
+    )
+    exit_cg_global_long_crowd_pct: float = Field(
+        default=0.0, ge=0.0, le=100.0, validation_alias="EXIT_CG_GLOBAL_LONG_CROWD_PCT"
+    )
+    # 净仓累计变化与持仓逆向：持多且 net_position_change_cum ≤ -该值 / 持空且 ≥ 该值。0=关闭
+    exit_cg_net_position_against: float = Field(
+        default=0.0, ge=0.0, validation_alias="EXIT_CG_NET_POSITION_AGAINST"
+    )
+    # 清算簇磁吸：名义≥该 USD 且现价距最近清算价 within EXIT_CG_LIQ_CLUSTER_DIST_PCT% 即离场
+    exit_cg_liq_cluster_usd: float = Field(default=0.0, ge=0.0, validation_alias="EXIT_CG_LIQ_CLUSTER_USD")
+    exit_cg_liq_cluster_dist_pct: float = Field(
+        default=1.0, ge=0.0, le=50.0, validation_alias="EXIT_CG_LIQ_CLUSTER_DIST_PCT"
+    )
 
     exchange_timeout_ms: int = Field(default=30_000, ge=1_000, validation_alias="EXCHANGE_TIMEOUT_MS")
     position_poll_interval_sec: float = Field(default=0.15, gt=0, validation_alias="POSITION_POLL_INTERVAL_SEC")
@@ -333,6 +359,16 @@ class Settings(BaseSettings):
 
     def coinglass_enabled(self) -> bool:
         return bool(self.coinglass_api_key)
+
+    def coinglass_derivatives_enabled(self) -> bool:
+        return self.coinglass_enabled() and self.coinglass_derivatives_on
+
+    def coinglass_liq_map_enabled(self) -> bool:
+        return self.coinglass_derivatives_enabled() and self.coinglass_liq_map_on
+
+    def session_limits_enforced(self) -> bool:
+        """UTC 日笔数/日亏损是否拦截新开仓（测试网与 dry_run 不拦截）。"""
+        return not self.binance_testnet and not self.dry_run
 
     @field_validator("openai_base_url", mode="before")
     @classmethod
@@ -657,7 +693,27 @@ class Settings(BaseSettings):
 
     def coinglass_exit_enabled(self) -> bool:
         """是否启用任一基于 CoinGlass 的离场规则。"""
-        return self.exit_cg_oi_drop_pct > 0.0 or self.exit_cg_adverse_funding > 0.0
+        return (
+            self.exit_cg_oi_drop_pct > 0.0
+            or self.exit_cg_adverse_funding > 0.0
+            or self.exit_cg_top_account_crowd_pct > 0.0
+            or self.exit_cg_top_position_crowd_pct > 0.0
+            or self.exit_cg_global_long_crowd_pct > 0.0
+            or self.exit_cg_net_position_against > 0.0
+            or self.exit_cg_liq_cluster_usd > 0.0
+        )
+
+    def coinglass_derivatives_exit_enabled(self) -> bool:
+        """是否启用 CoinGlass 多空比/净仓/清算地图类离场（需 COINGLASS_DERIVATIVES_ENABLED）。"""
+        if not self.coinglass_derivatives_enabled():
+            return False
+        return (
+            self.exit_cg_top_account_crowd_pct > 0.0
+            or self.exit_cg_top_position_crowd_pct > 0.0
+            or self.exit_cg_global_long_crowd_pct > 0.0
+            or self.exit_cg_net_position_against > 0.0
+            or self.exit_cg_liq_cluster_usd > 0.0
+        )
 
     def coinglass_alert_enabled(self) -> bool:
         """是否启用 CoinGlass 链上/流向 Telegram 告警。"""

@@ -112,3 +112,12 @@ def test_execute_hold_no_orders(exec_settings: Settings) -> None:
     sig = LLMSignal(action=Action.HOLD, size_pct=0.0, confidence=0.5, reason="test")
     execute_signal(ex, exec_settings, sig, account_hedged=False, session=None)
     assert ex.orders == []
+
+
+def test_execute_oneway_long_skips_when_already_long(exec_settings: Settings) -> None:
+    ex = FakeUSDMM()
+    ex.load_markets()
+    ex._net = 0.01
+    sig = LLMSignal(action=Action.LONG, size_pct=100.0, confidence=0.9, reason="test")
+    execute_signal(ex, exec_settings, sig, account_hedged=False, session=None)
+    assert ex.orders == []

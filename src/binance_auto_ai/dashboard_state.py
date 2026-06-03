@@ -74,6 +74,7 @@ class DashboardState:
         self._candidates: list[str] = []
         self._signals: dict[str, dict[str, Any]] = {}
         self._pick: dict[str, Any] | None = None
+        self._cg_market: dict[str, dict[str, Any]] = {}
         self._decisions: deque[dict[str, Any]] = deque(maxlen=_MAX_DECISIONS)
         self._events: deque[dict[str, Any]] = deque(maxlen=_MAX_EVENTS)
         self._equity_history: deque[dict[str, Any]] = deque(maxlen=_MAX_EQUITY_POINTS)
@@ -161,6 +162,10 @@ class DashboardState:
         with self._lock:
             self._pick = {"symbol": symbol, "signal": _signal_dict(signal), "score": score}
 
+    def set_cg_market(self, symbol: str, data: dict[str, Any]) -> None:
+        with self._lock:
+            self._cg_market[symbol] = dict(data)
+
     def append_decision(
         self,
         *,
@@ -234,6 +239,7 @@ class DashboardState:
                 "candidates": list(self._candidates),
                 "signals": dict(self._signals),
                 "pick": self._pick,
+                "coinglass_market": dict(self._cg_market),
                 "decisions": list(self._decisions),
                 "events": list(self._events),
                 "equity_history": recent,

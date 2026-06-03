@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 import ccxt
 
+from binance_auto_ai.coinglass_derivatives import CoinGlassMarketContext, derivatives_exit_reason
 from binance_auto_ai.config import Settings
 from binance_auto_ai.exchange_env import effective_leverage
 from binance_auto_ai.positions import fetch_position_entry, mark_last_usdt
@@ -79,6 +80,7 @@ class ExitTracker:
         leverage: float = 1.0,
         cg_oi_change_pct: float | None = None,
         cg_funding_rate: float | None = None,
+        cg_market: CoinGlassMarketContext | None = None,
         now_ts: float | None = None,
     ) -> ExitDecision:
         """更新该仓状态并判断是否触发离场。side 为空（平仓）时清除状态并返回不离场。
@@ -139,6 +141,10 @@ class ExitTracker:
                 f"cg_oi_drop oi_change={cg_oi_change_pct:+.2f}% <= -{oi_drop:.2f}% (pnl={pnl:.2f}%≥0, 趋势衰竭落袋)",
             )
 
+        cg_reason = derivatives_exit_reason(side, mark=mark, settings=settings, ctx=cg_market)
+        if cg_reason:
+            return ExitDecision(True, cg_reason)
+
         max_hold = settings.exit_max_hold_minutes
         if max_hold > 0.0:
             held_min = (now - st.first_ts) / 60.0
@@ -162,6 +168,22 @@ def _coinglass_coin_metrics(settings: Settings, symbol: str, coinglass: object |
     if not isinstance(row, dict):
         return None, None
     return row.get("oi_change_pct"), row.get("funding_rate")
+
+
+def _coinglass_market_context(
+    settings: Settings,
+    symbol: str,
+    coinglass: object | None,
+    *,
+    mark: float,
+) -> CoinGlassMarketContext | None:
+    if coinglass is None or not settings.coinglass_derivatives_exit_enabled():
+        return None
+    try:
+        return coinglass.market_context(symbol, mark_price=mark)  # type: ignore[attr-defined]
+    except Exception as e:  # noqa: BLE001
+        logger.debug("active exit: coinglass market_context failed for %s (%s)", symbol, e)
+        return None
 
 
 def held_exit_signal(
@@ -193,6 +215,7 @@ def held_exit_signal(
             logger.debug("active exit: leverage lookup failed for %s (%s); using 1x", symbol, e)
             lev = settings.leverage
     cg_oi_change_pct, cg_funding_rate = _coinglass_coin_metrics(settings, symbol, coinglass)
+    cg_market = _coinglass_market_context(settings, symbol, coinglass, mark=mark)
     decision = tracker.update_and_check(
         symbol,
         side=entry.side,
@@ -202,6 +225,7 @@ def held_exit_signal(
         leverage=lev,
         cg_oi_change_pct=cg_oi_change_pct,
         cg_funding_rate=cg_funding_rate,
+        cg_market=cg_market,
     )
     if not decision.should_exit:
         return None

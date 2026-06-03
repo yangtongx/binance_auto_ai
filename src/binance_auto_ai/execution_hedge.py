@@ -105,6 +105,10 @@ def execute_hedged(
                 log_message=f"HEDGE close SHORT leg before LONG amount={close_amt}",
             )
 
+        if legs.long_contracts > LEG_POSITION_EPS_CONTRACTS:
+            logger.info("HEDGE LONG skipped — long leg already open (no add-on)")
+            return
+
         long_n = long_leg_notional_usdt(legs, last)
         open_market_within_notional_cap(
             ex,
@@ -138,6 +142,10 @@ def execute_hedged(
                 wait_until=lambda lg: lg.long_contracts < LEG_POSITION_EPS_CONTRACTS,
                 log_message=f"HEDGE close LONG leg before SHORT amount={close_amt}",
             )
+
+        if legs.short_contracts > LEG_POSITION_EPS_CONTRACTS:
+            logger.info("HEDGE SHORT skipped — short leg already open (no add-on)")
+            return
 
         short_n = short_leg_notional_usdt(legs, last)
         open_market_within_notional_cap(

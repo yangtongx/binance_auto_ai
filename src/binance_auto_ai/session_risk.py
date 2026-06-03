@@ -124,6 +124,8 @@ class SessionRisk:
             )
 
     def block_reason_for(self, signal_action: Action, *, current_equity: float | None) -> str | None:
+        if not self._settings.session_limits_enforced():
+            return None
         with self._lock:
             if signal_action in (Action.HOLD, Action.FLAT):
                 return None

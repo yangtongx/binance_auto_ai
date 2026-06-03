@@ -2,6 +2,7 @@
 
 - base: https://open-api-v4.coinglass.com ，鉴权头 ``CG-API-KEY``。
 - 选币：``/api/futures/coins-markets`` 聚合 OI 变化与资金费率。
+- 微观结构：大户/全局多空比、净多空、清算地图（见 ``coinglass_derivatives``）。
 - 告警：``/api/spot/netflow-list``、``/api/exchange/balance/list``、``/api/chain/v2/whale-transfer``。
 - 全程「可选 + 失败降级」：未装 requests / key 为空 / 请求失败 / 字段缺失 → 返回空，
   不影响主流程。
@@ -15,6 +16,15 @@ import logging
 import time
 from typing import Any
 
+from binance_auto_ai.coinglass_derivatives import (
+    CoinGlassMarketContext,
+    build_market_context,
+    coinglass_interval_from_timeframe,
+    latest_history_row,
+    summarize_liquidation_map,
+    symbol_to_coinglass_coin,
+    symbol_to_coinglass_pair,
+)
 from binance_auto_ai.config import Settings
 from binance_auto_ai.exchange_env import normalize_proxy_url, resolve_binance_proxy
 
@@ -24,6 +34,11 @@ _COINS_MARKETS_PATH = "/api/futures/coins-markets"
 _SPOT_NETFLOW_PATH = "/api/spot/netflow-list"
 _EXCHANGE_BALANCE_PATH = "/api/exchange/balance/list"
 _WHALE_TRANSFER_PATH = "/api/chain/v2/whale-transfer"
+_TOP_ACCOUNT_RATIO_PATH = "/api/futures/top-long-short-account-ratio/history"
+_TOP_POSITION_RATIO_PATH = "/api/futures/top-long-short-position-ratio/history"
+_GLOBAL_ACCOUNT_RATIO_PATH = "/api/futures/global-long-short-account-ratio/history"
+_NET_POSITION_PATH = "/api/futures/net-position/history"
+_LIQ_AGG_MAP_PATH = "/api/futures/liquidation/aggregated-map"
 
 _NETFLOW_24H_KEYS = ("net_flow_usd_24h", "netFlowUsd24h", "net_flow_24h")
 _NETFLOW_1H_KEYS = ("net_flow_usd_1h", "netFlowUsd1h", "net_flow_1h")
@@ -209,6 +224,7 @@ class CoinglassClient:
         self._netflow_cache_ts = 0.0
         self._netflow_cache: dict[str, dict[str, float | None]] = {}
         self._balance_cache: dict[str, tuple[float, list[dict[str, float | str | None]]]] = {}
+        self._market_ctx_cache: dict[str, tuple[float, CoinGlassMarketContext]] = {}
         proxy = resolve_binance_proxy(settings)
         self._proxies = None
         if proxy:
@@ -331,6 +347,79 @@ class CoinglassClient:
             if parsed is not None:
                 out.append(parsed)
         return out
+
+    def _history_latest(
+        self,
+        path: str,
+        *,
+        exchange: str,
+        pair: str,
+        interval: str,
+    ) -> dict[str, Any] | None:
+        data = self._get(
+            path,
+            {"exchange": exchange, "symbol": pair, "interval": interval, "limit": 2},
+        )
+        rows = _rows_from_data(data)
+        return latest_history_row(rows)
+
+    def market_context(
+        self,
+        ccxt_symbol: str,
+        *,
+        mark_price: float | None = None,
+    ) -> CoinGlassMarketContext | None:
+        """单币衍生品快照：大户/全局多空比、净多空、清算地图（TTL 缓存；失败返回 None）。"""
+        if not self._api_key or not self._settings.coinglass_derivatives_enabled():
+            return None
+        sym = ccxt_symbol.strip()
+        if not sym:
+            return None
+        now = time.monotonic()
+        cached = self._market_ctx_cache.get(sym)
+        if cached and (now - cached[0]) < self._ttl:
+            return cached[1]
+
+        exchange = self._settings.coinglass_exchange.strip() or "Binance"
+        pair = symbol_to_coinglass_pair(sym)
+        interval = (self._settings.coinglass_ls_interval or "").strip()
+        if not interval:
+            interval = coinglass_interval_from_timeframe(self._settings.timeframe)
+        coin = symbol_to_coinglass_coin(sym)
+
+        top_acc = self._history_latest(
+            _TOP_ACCOUNT_RATIO_PATH, exchange=exchange, pair=pair, interval=interval
+        )
+        top_pos = self._history_latest(
+            _TOP_POSITION_RATIO_PATH, exchange=exchange, pair=pair, interval=interval
+        )
+        global_acc = self._history_latest(
+            _GLOBAL_ACCOUNT_RATIO_PATH, exchange=exchange, pair=pair, interval=interval
+        )
+        net_pos = self._history_latest(_NET_POSITION_PATH, exchange=exchange, pair=pair, interval=interval)
+
+        liq_summary: dict[str, float | None] | None = None
+        if self._settings.coinglass_liq_map_enabled() and mark_price is not None and mark_price > 0:
+            liq_raw = self._get(
+                _LIQ_AGG_MAP_PATH,
+                {"symbol": coin, "range": self._settings.coinglass_liq_map_range},
+            )
+            if liq_raw is not None:
+                liq_summary = summarize_liquidation_map(liq_raw, mark_price=mark_price)
+
+        ctx = build_market_context(
+            symbol=sym,
+            mark_price=mark_price,
+            top_account_row=top_acc,
+            top_position_row=top_pos,
+            global_account_row=global_acc,
+            net_position_row=net_pos,
+            liq_summary=liq_summary,
+        )
+        if not ctx.has_any_ratio() and liq_summary is None:
+            return cached[1] if cached else None
+        self._market_ctx_cache[sym] = (now, ctx)
+        return ctx
 
 
 def build_coinglass_client(settings: Settings) -> CoinglassClient | None:

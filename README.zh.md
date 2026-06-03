@@ -320,11 +320,17 @@ binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-
 | `momentum`（别名 `trend`） | **趋势强度** `\|SMA_fast−SMA_slow\|/价`，用 **`STRATEGY_FAST/SLOW`** 与 **`TIMEFRAME`**，与交易策略对齐；**两段式**（先按流动性取短名单，再逐币拉 OHLCV，避免对全市场逐币请求） |
 | `funding` / `abs_funding`（别名 `funding_rate`） | 资金费率（带符号 / 绝对值=拥挤度），经 `fetch_funding_rates`；不可用时该维度自动降级 |
 | `cg_oi_change`（别名 `oi_change`） | **CoinGlass 跨交易所聚合持仓量变化%**——确认趋势有真金白银跟随；需 `COINGLASS_API_KEY`，否则该维度自动降级 |
+| `cg_top_account_long` | 大户账号做多占比 %（逐币，流动性短名单） |
+| `cg_top_position_long` | 大户持仓做多占比 % |
+| `cg_global_long` | 全市场账户做多占比 % |
+| `cg_net_position` | 净仓累计变化 `net_position_change_cum` |
+| `cg_liq_below` / `cg_liq_above` | 清算地图：现价下/上方清算簇名义（USD） |
 | `random` | 伪随机（每小时种子），用于打散 |
 
 - **CoinGlass 过滤（可选）**：设 **`COINGLASS_MAX_ABS_FUNDING_PCT`** 后，按 CoinGlass **聚合资金费率** 剔除过度拥挤（易插针爆仓）的币（类似暴涨暴跌黑名单）。
 - **刷新**：**`SYMBOL_CANDIDATES_REFRESH_MINUTES`**（>0 时覆盖 `_HOURS`）。`SYMBOL_CANDIDATES=auto` 也可改为手写列表（2–12 个）。
 - **CoinGlass 接入**：`pip install -e ".[coinglass]"` 并设 **`COINGLASS_API_KEY`**（V4，鉴权头 `CG-API-KEY`）。一次 `coins-markets` 快照按 TTL 缓存；未装/无 key/请求失败时 `cg_oi_change` 与资金费率过滤**自动关闭**，不影响主流程。推荐 `RANK_BY=momentum,cg_oi_change,liquidity`。
+- **CoinGlass 微观结构**（`COINGLASS_DERIVATIVES_ENABLED`，默认开）：每轮对**当前持仓/本轮 pick** 拉取 **大户账号多空比**、**大户持仓多空比**、**全市场人数多空比**、**净多/净空累计变化**，并可选 **清算地图**（`COINGLASS_LIQ_MAP_*`，需 Professional+ 套餐）。写入日志与监控面板 `coinglass_market`；LLM 模式会附加到 prompt。规则策略暂不改信号，仅作参考。
 
 **单仓轮换**（`symbol_picker.plan_signal_pick_trades`）：空仓→开最强方向；持仓币仍最强→维持；出现更强的别的币→**先平再换**（2 笔）；持仓币给 `flat`→平仓；池外仓→平掉。**`SYMBOL_ROTATION_HYSTERESIS`**（默认 `0.05`）：只有新标的方向置信度 **≥ 在手仓 + 该值** 才换币，降低 1m/5m 噪声下的频繁换手（换手吃 taker 手续费 + 滑点）。
 
@@ -344,6 +350,11 @@ binance-auto-var-validate --csv data/btc.csv --lookback 250 --alpha 0.05 --json-
 | `EXIT_STOP_LOSS_ROE_PCT` | 按 ROE 止损：亏到保证金的该 %（如 `80`）即平仓 |
 | `EXIT_CG_OI_DROP_PCT` | **CoinGlass OI 骤降离场**：有浮盈时聚合 OI 变化% ≤ -该值（趋势衰竭）即落袋（需 `COINGLASS_API_KEY`）|
 | `EXIT_CG_ADVERSE_FUNDING` | **逆向资金费率护栏**：做多时聚合资金费率 ≥ 该值 / 做空时 ≤ -该值（过度拥挤）即离场（需 `COINGLASS_API_KEY`）|
+| `EXIT_CG_TOP_ACCOUNT_CROWD_PCT` | **大户账号多空比拥挤**：持多且大户做多% ≥ 该值 / 持空且大户做空% ≥ 该值即离场 |
+| `EXIT_CG_TOP_POSITION_CROWD_PCT` | **大户持仓多空比拥挤**（同上，看持仓占比） |
+| `EXIT_CG_GLOBAL_LONG_CROWD_PCT` | **全市场人数多空比拥挤**：持多且全局做多% ≥ 该值 / 持空且全局做空% ≥ 该值 |
+| `EXIT_CG_NET_POSITION_AGAINST` | **净仓逆向**：持多且 `net_position_change_cum` ≤ -该值 / 持空且 ≥ 该值 |
+| `EXIT_CG_LIQ_CLUSTER_USD` + `EXIT_CG_LIQ_CLUSTER_DIST_PCT` | **清算地图磁吸**：簇名义 ≥ USD 且现价距最近清算价 within DIST%（需 Professional+ 清算地图 API） |
 
 **说明：**
 

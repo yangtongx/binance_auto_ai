@@ -86,11 +86,24 @@ def test_hysteresis_keeps_held_when_new_only_marginally_stronger() -> None:
         held_outside_whitelist=False,
         min_confidence=0.55,
         rotation_hysteresis=0.05,
+        held_position_side=Action.LONG,
     )
-    # 0.72 < 0.70 + 0.05 → 不换币，继续持 A
-    assert len(steps) == 1
-    assert steps[0].symbol == "A/USDT:USDT"
-    assert steps[0].signal.action == Action.LONG
+    # 0.72 < 0.70 + 0.05 → 不换币；已有多仓则不再重复开多
+    assert steps == []
+
+
+def test_plan_no_repeat_short_when_already_short() -> None:
+    cands = ["ZEC/USDT:USDT"]
+    signals = {"ZEC/USDT:USDT": _sig(Action.SHORT, 0.8)}
+    steps = plan_signal_pick_trades(
+        signals,
+        candidates=cands,
+        held_symbol="ZEC/USDT:USDT",
+        held_outside_whitelist=False,
+        min_confidence=0.55,
+        held_position_side=Action.SHORT,
+    )
+    assert steps == []
 
 
 def test_hysteresis_rotates_when_new_clearly_stronger() -> None:
