@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from pathlib import Path
@@ -27,6 +28,8 @@ def _docker_writable_state_file() -> Path | None:
     return None
 
 _SYMBOL_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+:[A-Za-z0-9._-]+$")
+
+logger = logging.getLogger(__name__)
 
 # Docker secrets 约定：若设置了 XXX_FILE，则从该文件读取密钥
 _DOCKER_SECRET_MAP = {
@@ -470,11 +473,6 @@ class Settings(BaseSettings):
             weights_raw = self.symbol_candidates_rank_weights.strip()
             if weights_raw:
                 parts = [p for p in weights_raw.split(",") if p.strip()]
-                if len(parts) != len(metrics):
-                    raise ValueError(
-                        "SYMBOL_CANDIDATES_RANK_WEIGHTS must have one number per RANK_BY metric "
-                        f"(got {len(parts)} weights for {len(metrics)} metrics)"
-                    )
                 for p in parts:
                     try:
                         if float(p.strip()) < 0:
@@ -483,6 +481,25 @@ class Settings(BaseSettings):
                         raise ValueError(
                             "SYMBOL_CANDIDATES_RANK_WEIGHTS must be non-negative numbers"
                         ) from e
+                if len(parts) != len(metrics):
+                    from binance_auto_ai.symbol_universe import parse_rank_weights
+
+                    logger.warning(
+                        "SYMBOL_CANDIDATES_RANK_WEIGHTS count (%s) != RANK_BY count (%s); "
+                        "using equal weights for %s. Sync both from deploy/server.env: "
+                        "bash scripts/overwrite-env.sh",
+                        len(parts),
+                        len(metrics),
+                        ",".join(metrics),
+                    )
+                    normalized = parse_rank_weights(metrics, weights_raw)
+                    return self.model_copy(
+                        update={
+                            "symbol_candidates_rank_weights": ",".join(
+                                f"{w:g}" for w in normalized
+                            ),
+                        }
+                    )
             return self
         cands = self.manual_candidate_symbols()
         if len(cands) < 2:
