@@ -21,6 +21,7 @@ from binance_auto_ai.coinglass_derivatives import (
     build_market_context,
     coinglass_interval_from_timeframe,
     latest_history_row,
+    summarize_liquidation_heatmap,
     summarize_liquidation_map,
     symbol_to_coinglass_coin,
     symbol_to_coinglass_pair,
@@ -39,6 +40,7 @@ _TOP_POSITION_RATIO_PATH = "/api/futures/top-long-short-position-ratio/history"
 _GLOBAL_ACCOUNT_RATIO_PATH = "/api/futures/global-long-short-account-ratio/history"
 _NET_POSITION_PATH = "/api/futures/net-position/history"
 _LIQ_AGG_MAP_PATH = "/api/futures/liquidation/aggregated-map"
+_LIQ_HEATMAP_PATH = "/api/futures/liquidation/heatmap/model2"
 
 _NETFLOW_24H_KEYS = ("net_flow_usd_24h", "netFlowUsd24h", "net_flow_24h")
 _NETFLOW_1H_KEYS = ("net_flow_usd_1h", "netFlowUsd1h", "net_flow_1h")
@@ -399,13 +401,26 @@ class CoinglassClient:
         net_pos = self._history_latest(_NET_POSITION_PATH, exchange=exchange, pair=pair, interval=interval)
 
         liq_summary: dict[str, float | None] | None = None
-        if self._settings.coinglass_liq_map_enabled() and mark_price is not None and mark_price > 0:
-            liq_raw = self._get(
-                _LIQ_AGG_MAP_PATH,
-                {"symbol": coin, "range": self._settings.coinglass_liq_map_range},
-            )
-            if liq_raw is not None:
-                liq_summary = summarize_liquidation_map(liq_raw, mark_price=mark_price)
+        heatmap_summary: dict[str, float | None] | None = None
+        if mark_price is not None and mark_price > 0:
+            if self._settings.coinglass_liq_map_enabled():
+                liq_raw = self._get(
+                    _LIQ_AGG_MAP_PATH,
+                    {"symbol": coin, "range": self._settings.coinglass_liq_map_range},
+                )
+                if liq_raw is not None:
+                    liq_summary = summarize_liquidation_map(liq_raw, mark_price=mark_price)
+            if self._settings.coinglass_liq_heatmap_enabled():
+                heat_raw = self._get(
+                    _LIQ_HEATMAP_PATH,
+                    {
+                        "exchange": exchange,
+                        "symbol": pair,
+                        "range": self._settings.coinglass_liq_heatmap_range,
+                    },
+                )
+                if heat_raw is not None:
+                    heatmap_summary = summarize_liquidation_heatmap(heat_raw, mark_price=mark_price)
 
         ctx = build_market_context(
             symbol=sym,
@@ -415,8 +430,9 @@ class CoinglassClient:
             global_account_row=global_acc,
             net_position_row=net_pos,
             liq_summary=liq_summary,
+            heatmap_summary=heatmap_summary,
         )
-        if not ctx.has_any_ratio() and liq_summary is None:
+        if not ctx.has_any_ratio() and liq_summary is None and heatmap_summary is None:
             return cached[1] if cached else None
         self._market_ctx_cache[sym] = (now, ctx)
         return ctx

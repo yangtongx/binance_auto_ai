@@ -8,7 +8,12 @@ from dataclasses import dataclass
 import ccxt
 
 from binance_auto_ai.backtest.engine import Strategy
+from typing import TYPE_CHECKING
+
 from binance_auto_ai.config import Settings
+
+if TYPE_CHECKING:
+    from binance_auto_ai.coinglass_derivatives import CoinGlassMarketContext
 from binance_auto_ai.ohlcv_utils import drop_incomplete_last_candle
 from binance_auto_ai.constants import NET_POSITION_EPS_CONTRACTS
 from binance_auto_ai.positions import fetch_position_legs
@@ -177,6 +182,9 @@ def plan_signal_pick_trades(
     min_confidence: float,
     rotation_hysteresis: float = 0.0,
     held_position_side: Action | None = None,
+    preferred_pick: SymbolPick | None = None,
+    entry_contexts: dict[str, "CoinGlassMarketContext"] | None = None,
+    settings: Settings | None = None,
 ) -> list[TickTradeStep]:
     """
     单仓策略：
@@ -191,7 +199,33 @@ def plan_signal_pick_trades(
     if held_outside_whitelist and held_symbol:
         return [TickTradeStep(held_symbol, _flat_signal(reason="signal_pick: flat non-whitelist position"))]
 
-    best = pick_best_directional(signals, candidates_order=candidates, min_confidence=min_confidence)
+    best = preferred_pick
+    if best is None:
+        if entry_contexts is not None and settings is not None:
+            from binance_auto_ai.coinglass_entry import pick_best_with_coinglass
+
+            best = pick_best_with_coinglass(
+                signals,
+                candidates_order=candidates,
+                min_confidence=min_confidence,
+                contexts=entry_contexts,
+                settings=settings,
+            )
+        else:
+            best = pick_best_directional(signals, candidates_order=candidates, min_confidence=min_confidence)
+
+    def _score_for(sym: str, sig: LLMSignal) -> float | None:
+        if entry_contexts is not None and settings is not None:
+            from binance_auto_ai.coinglass_entry import pick_score
+
+            return pick_score(
+                sym,
+                sig,
+                min_confidence=min_confidence,
+                contexts=entry_contexts,
+                settings=settings,
+            )
+        return _directional_score(sig, min_confidence=min_confidence)
 
     if held_symbol:
         held_sig = signals.get(
@@ -202,7 +236,7 @@ def plan_signal_pick_trades(
             return [TickTradeStep(held_symbol, held_sig)]
         if best is not None and best.symbol == held_symbol:
             return _steps_for_held(held_symbol, best.signal, held_position_side=held_position_side)
-        held_score = _directional_score(held_sig, min_confidence=min_confidence)
+        held_score = _score_for(held_symbol, held_sig)
         if best is not None and best.symbol != held_symbol:
             # 在手仍是有效方向信号时，新标的需明显更强（超出迟滞带）才换币
             if held_score is None or best.score >= held_score + rotation_hysteresis:

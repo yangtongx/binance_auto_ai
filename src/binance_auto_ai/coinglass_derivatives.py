@@ -190,6 +190,68 @@ def summarize_liquidation_map(
     }
 
 
+def _heatmap_inner(data: Any) -> dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    inner = data.get("data", data)
+    return inner if isinstance(inner, dict) else {}
+
+
+def summarize_liquidation_heatmap(
+    data: Any,
+    *,
+    mark_price: float,
+) -> dict[str, float | None]:
+    """Pair 清算热力图 model2：按 y_axis 价位聚合下方/上方清算名义（USD）。"""
+    if mark_price <= 0:
+        return {
+            "liq_heatmap_below_usd": None,
+            "liq_heatmap_above_usd": None,
+            "liq_heatmap_nearest_long_price": None,
+            "liq_heatmap_nearest_short_price": None,
+        }
+    inner = _heatmap_inner(data)
+    y_axis_raw = inner.get("y_axis") or inner.get("yAxis") or []
+    y_axis: list[float] = []
+    for y in y_axis_raw:
+        f = _as_float(y)
+        if f is not None:
+            y_axis.append(f)
+    rows = inner.get("liquidation_leverage_data") or inner.get("liquidationLeverageData") or []
+    below = 0.0
+    above = 0.0
+    nearest_long: float | None = None
+    nearest_short: float | None = None
+    for row in rows:
+        if not isinstance(row, (list, tuple)) or len(row) < 3:
+            continue
+        yi = row[1]
+        try:
+            yi_int = int(yi)
+        except (TypeError, ValueError):
+            continue
+        if yi_int < 0 or yi_int >= len(y_axis):
+            continue
+        price = y_axis[yi_int]
+        amt = _as_float(row[2])
+        if amt is None or amt <= 0:
+            continue
+        if price < mark_price:
+            below += amt
+            if nearest_long is None or price > nearest_long:
+                nearest_long = price
+        elif price > mark_price:
+            above += amt
+            if nearest_short is None or price < nearest_short:
+                nearest_short = price
+    return {
+        "liq_heatmap_below_usd": below if below > 0 else None,
+        "liq_heatmap_above_usd": above if above > 0 else None,
+        "liq_heatmap_nearest_long_price": nearest_long,
+        "liq_heatmap_nearest_short_price": nearest_short,
+    }
+
+
 @dataclass(frozen=True)
 class CoinGlassMarketContext:
     """单币 CoinGlass 衍生品快照（最新一根多空比 + 可选清算地图摘要）。"""
@@ -216,6 +278,10 @@ class CoinGlassMarketContext:
     liq_notional_above_mark_usd: float | None = None
     liq_nearest_long_price: float | None = None
     liq_nearest_short_price: float | None = None
+    liq_heatmap_below_usd: float | None = None
+    liq_heatmap_above_usd: float | None = None
+    liq_heatmap_nearest_long_price: float | None = None
+    liq_heatmap_nearest_short_price: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -241,6 +307,7 @@ def build_market_context(
     global_account_row: dict[str, Any] | None,
     net_position_row: dict[str, Any] | None,
     liq_summary: dict[str, float | None] | None,
+    heatmap_summary: dict[str, float | None] | None = None,
 ) -> CoinGlassMarketContext:
     coin = symbol_to_coinglass_coin(symbol)
     pair = symbol_to_coinglass_pair(symbol)
@@ -260,6 +327,8 @@ def build_market_context(
         fields.update(parse_net_position(net_position_row))
     if liq_summary:
         fields.update(liq_summary)
+    if heatmap_summary:
+        fields.update(heatmap_summary)
     return CoinGlassMarketContext(**fields)
 
 
@@ -301,9 +370,23 @@ def format_market_context(ctx: CoinGlassMarketContext) -> str:
         )
     ):
         lines.append(
-            "清算地图(1d聚合)  "
+            "清算地图  "
             f"下方多头清算簇 ${_num(ctx.liq_notional_below_mark_usd)} @ {_num(ctx.liq_nearest_long_price)} · "
             f"上方空头清算簇 ${_num(ctx.liq_notional_above_mark_usd)} @ {_num(ctx.liq_nearest_short_price)}"
+        )
+    if any(
+        v is not None
+        for v in (
+            ctx.liq_heatmap_below_usd,
+            ctx.liq_heatmap_above_usd,
+            ctx.liq_heatmap_nearest_long_price,
+            ctx.liq_heatmap_nearest_short_price,
+        )
+    ):
+        lines.append(
+            "清算热力图  "
+            f"下方 ${_num(ctx.liq_heatmap_below_usd)} @ {_num(ctx.liq_heatmap_nearest_long_price)} · "
+            f"上方 ${_num(ctx.liq_heatmap_above_usd)} @ {_num(ctx.liq_heatmap_nearest_short_price)}"
         )
     return "\n".join(lines)
 

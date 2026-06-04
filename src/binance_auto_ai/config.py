@@ -251,6 +251,16 @@ class Settings(BaseSettings):
     coinglass_ls_interval: str = Field(default="", validation_alias="COINGLASS_LS_INTERVAL")
     coinglass_liq_map_on: bool = Field(default=True, validation_alias="COINGLASS_LIQ_MAP_ENABLED")
     coinglass_liq_map_range: str = Field(default="1d", validation_alias="COINGLASS_LIQ_MAP_RANGE")
+    coinglass_liq_heatmap_on: bool = Field(default=True, validation_alias="COINGLASS_LIQ_HEATMAP_ENABLED")
+    coinglass_liq_heatmap_range: str = Field(default="3d", validation_alias="COINGLASS_LIQ_HEATMAP_RANGE")
+    # signal_pick 开仓：清算地图+热力图加权/拦截（需 COINGLASS_API_KEY + DERIVATIVES_ENABLED）
+    entry_cg_on: bool = Field(default=True, validation_alias="ENTRY_CG_ENABLED")
+    entry_cg_weight: float = Field(default=0.35, ge=0.0, le=1.0, validation_alias="ENTRY_CG_WEIGHT")
+    entry_cg_liq_min_usd: float = Field(default=500_000.0, ge=0.0, validation_alias="ENTRY_CG_LIQ_MIN_USD")
+    entry_cg_block_against: bool = Field(default=True, validation_alias="ENTRY_CG_BLOCK_AGAINST")
+    entry_cg_block_dist_pct: float = Field(
+        default=2.0, ge=0.0, le=50.0, validation_alias="ENTRY_CG_BLOCK_DIST_PCT"
+    )
     # --- CoinGlass 链上/流向 Telegram 告警（只通知不下单；需 COINGLASS_API_KEY + Telegram）---
     coinglass_alerts_on: bool = Field(default=False, validation_alias="COINGLASS_ALERT_ENABLED")
     coinglass_alert_interval_sec: float = Field(
@@ -365,6 +375,9 @@ class Settings(BaseSettings):
 
     def coinglass_liq_map_enabled(self) -> bool:
         return self.coinglass_derivatives_enabled() and self.coinglass_liq_map_on
+
+    def coinglass_liq_heatmap_enabled(self) -> bool:
+        return self.coinglass_derivatives_enabled() and self.coinglass_liq_heatmap_on
 
     def session_limits_enforced(self) -> bool:
         """UTC 日笔数/日亏损是否拦截新开仓（测试网与 dry_run 不拦截）。"""

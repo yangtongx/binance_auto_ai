@@ -34,6 +34,7 @@ from binance_auto_ai.risk_metrics import aligned_log_return_correlation, var_tai
 from binance_auto_ai.schemas import Action
 from binance_auto_ai.session_risk import SessionRisk
 from binance_auto_ai.positions import fetch_position_legs
+from binance_auto_ai.coinglass_entry import entry_cg_enabled, fetch_entry_contexts, pick_best_with_coinglass
 from binance_auto_ai.symbol_picker import (
     evaluate_candidate_signals,
     log_candidate_signals,
@@ -279,9 +280,21 @@ def _tick_signal_pick(
             coinglass=exit_coinglass,
         ):
             return
-    pick = pick_best_directional(
-        signals, candidates_order=candidates, min_confidence=settings.min_confidence
+    entry_contexts = fetch_entry_contexts(
+        ex, exit_coinglass, settings, candidates, signals  # type: ignore[arg-type]
     )
+    if entry_cg_enabled(settings):
+        pick = pick_best_with_coinglass(
+            signals,
+            candidates_order=candidates,
+            min_confidence=settings.min_confidence,
+            contexts=entry_contexts,
+            settings=settings,
+        )
+    else:
+        pick = pick_best_directional(
+            signals, candidates_order=candidates, min_confidence=settings.min_confidence
+        )
     log_candidate_signals(candidates, signals, pick=pick)
     dashboard_state.set_candidates(candidates)
     dashboard_state.set_signals(signals)
@@ -308,6 +321,9 @@ def _tick_signal_pick(
         min_confidence=settings.min_confidence,
         rotation_hysteresis=settings.symbol_rotation_hysteresis,
         held_position_side=held_position_side,
+        preferred_pick=pick,
+        entry_contexts=entry_contexts if entry_cg_enabled(settings) else None,
+        settings=settings if entry_cg_enabled(settings) else None,
     )
     if not steps:
         logger.info("signal_pick: no trade steps this tick")

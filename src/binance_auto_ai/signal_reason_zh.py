@@ -172,4 +172,6 @@ def _active_exit_to_zh(detail: str) -> str:
         return f"CoinGlass 净仓逆向 · {detail}"
     if detail.startswith("cg_liq_cluster "):
         return f"CoinGlass 清算簇磁吸 · {detail}"
+    if detail.startswith("cg_entry_block "):
+        return f"CoinGlass 开仓拦截 · {detail}"
     return f"主动离场 · {detail}"

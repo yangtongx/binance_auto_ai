@@ -6,6 +6,7 @@ from binance_auto_ai.coinglass_derivatives import (
     latest_history_row,
     parse_top_account_ratio,
     rank_metrics_from_context,
+    summarize_liquidation_heatmap,
     summarize_liquidation_map,
     symbol_to_coinglass_pair,
 )
@@ -36,6 +37,23 @@ def test_parse_top_account_ratio() -> None:
     )
     assert parsed["top_account_long_pct"] == 73.3
     assert parsed["top_account_ratio"] == 2.75
+
+
+def test_summarize_liquidation_heatmap() -> None:
+    data = {
+        "data": {
+            "y_axis": [90.0, 100.0, 110.0],
+            "liquidation_leverage_data": [
+                [0, 0, 800_000.0],
+                [0, 2, 1_500_000.0],
+            ],
+        }
+    }
+    s = summarize_liquidation_heatmap(data, mark_price=100.0)
+    assert s["liq_heatmap_below_usd"] == 800_000.0
+    assert s["liq_heatmap_above_usd"] == 1_500_000.0
+    assert s["liq_heatmap_nearest_long_price"] == 90.0
+    assert s["liq_heatmap_nearest_short_price"] == 110.0
 
 
 def test_summarize_liquidation_map() -> None:
