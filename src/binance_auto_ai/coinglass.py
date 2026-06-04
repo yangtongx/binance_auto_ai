@@ -483,14 +483,33 @@ def log_coinglass_startup(settings: Settings, client: CoinglassClient | None) ->
     rank_metrics = settings.candidate_rank_metrics() if settings.symbol_candidates_is_auto() else []
     cg_rank = [m for m in rank_metrics if m.startswith("cg_")]
     if not settings.coinglass_enabled():
+        import os
+        from pathlib import Path
+
+        hint = "Set secrets/coinglass_api_key then: docker compose up -d --force-recreate"
+        cg_file = os.environ.get("COINGLASS_API_KEY_FILE", "").strip()
+        if cg_file:
+            p = Path(cg_file)
+            if p.is_file():
+                try:
+                    size = p.stat().st_size
+                    readable = os.access(p, os.R_OK)
+                    hint = (
+                        f"secret file {cg_file} size={size}B readable={readable} "
+                        f"(if size>0 but key empty, check docker-entrypoint / recreate container)"
+                    )
+                except OSError as e:
+                    hint = f"secret file {cg_file} stat failed: {e}"
+            else:
+                hint = f"secret file missing: {cg_file}"
         if cg_rank or settings.coinglass_max_abs_funding_pct > 0 or settings.entry_cg_on:
             logger.info(
-                "CoinGlass: OFF (COINGLASS_API_KEY empty). Rank metrics %s and entry/exit CG rules will degrade. "
-                "Set secrets/coinglass_api_key",
+                "CoinGlass: OFF (COINGLASS_API_KEY empty). Rank metrics %s and entry/exit CG rules will degrade. %s",
                 ",".join(cg_rank) if cg_rank else "(none in RANK_BY)",
+                hint,
             )
         else:
-            logger.info("CoinGlass: OFF (no API key configured)")
+            logger.info("CoinGlass: OFF (no API key configured). %s", hint)
         return
     logger.info(
         "CoinGlass: ON key=%s exchange=%s derivatives=%s liq_map=%s heatmap=%s "
