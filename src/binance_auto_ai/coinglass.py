@@ -20,6 +20,7 @@ from binance_auto_ai.coinglass_derivatives import (
     CoinGlassMarketContext,
     build_market_context,
     coinglass_interval_from_timeframe,
+    format_market_context_brief,
     latest_history_row,
     summarize_liquidation_heatmap,
     summarize_liquidation_map,
@@ -270,21 +271,39 @@ class CoinglassClient:
     def coin_metrics(self) -> dict[str, dict[str, float | None]]:
         """``{COIN: {oi_change_pct, funding_rate}}``；带 TTL 缓存，失败/无 key 返回空。"""
         if not self._api_key:
+            logger.info("CoinGlass coins-markets: skipped (API key empty)")
             return {}
         now = time.monotonic()
         if self._cache and (now - self._cache_ts) < self._ttl:
+            logger.debug("CoinGlass coins-markets: cache hit (%s coins)", len(self._cache))
             return self._cache
+        logger.info("CoinGlass coins-markets: fetching %s", _COINS_MARKETS_PATH)
         data = self._get(_COINS_MARKETS_PATH)
         rows = _rows_from_data(data)
         if not rows:
-            return self._cache  # 失败时沿用上次缓存（可能为空）
+            if self._cache:
+                logger.warning(
+                    "CoinGlass coins-markets: request failed; using stale cache (%s coins)",
+                    len(self._cache),
+                )
+            else:
+                logger.warning("CoinGlass coins-markets: no rows (check API key, plan, proxy)")
+            return self._cache
         metrics = normalize_coin_metrics(rows)
-        if metrics and not any(
-            v.get("oi_change_pct") is not None or v.get("funding_rate") is not None for v in metrics.values()
-        ):
-            logger.debug(
-                "CoinGlass coins-markets parsed but no oi_change/funding fields matched; sample keys=%s",
+        n_oi = sum(1 for v in metrics.values() if v.get("oi_change_pct") is not None)
+        n_fr = sum(1 for v in metrics.values() if v.get("funding_rate") is not None)
+        if metrics and n_oi == 0 and n_fr == 0:
+            logger.warning(
+                "CoinGlass coins-markets: parsed %s coins but no oi_change/funding matched; sample keys=%s",
+                len(metrics),
                 list(rows[0].keys())[:20],
+            )
+        else:
+            logger.info(
+                "CoinGlass coins-markets: ok coins=%s with_oi_change=%s with_funding=%s",
+                len(metrics),
+                n_oi,
+                n_fr,
             )
         self._cache = metrics
         self._cache_ts = now
@@ -372,7 +391,11 @@ class CoinglassClient:
         mark_price: float | None = None,
     ) -> CoinGlassMarketContext | None:
         """单币衍生品快照：大户/全局多空比、净多空、清算地图（TTL 缓存；失败返回 None）。"""
-        if not self._api_key or not self._settings.coinglass_derivatives_enabled():
+        if not self._api_key:
+            logger.info("CoinGlass market_context %s: skipped (API key empty)", ccxt_symbol)
+            return None
+        if not self._settings.coinglass_derivatives_enabled():
+            logger.info("CoinGlass market_context %s: skipped (COINGLASS_DERIVATIVES_ENABLED=false)", ccxt_symbol)
             return None
         sym = ccxt_symbol.strip()
         if not sym:
@@ -380,8 +403,16 @@ class CoinglassClient:
         now = time.monotonic()
         cached = self._market_ctx_cache.get(sym)
         if cached and (now - cached[0]) < self._ttl:
+            logger.debug("CoinGlass market_context %s: cache hit", sym)
             return cached[1]
 
+        logger.info(
+            "CoinGlass market_context %s: fetching (exchange=%s map=%s heatmap=%s)",
+            sym,
+            self._settings.coinglass_exchange.strip() or "Binance",
+            self._settings.coinglass_liq_map_enabled(),
+            self._settings.coinglass_liq_heatmap_enabled(),
+        )
         exchange = self._settings.coinglass_exchange.strip() or "Binance"
         pair = symbol_to_coinglass_pair(sym)
         interval = (self._settings.coinglass_ls_interval or "").strip()
@@ -433,9 +464,57 @@ class CoinglassClient:
             heatmap_summary=heatmap_summary,
         )
         if not ctx.has_any_ratio() and liq_summary is None and heatmap_summary is None:
+            logger.warning("CoinGlass market_context %s: no ratio/liq/heatmap data", sym)
             return cached[1] if cached else None
         self._market_ctx_cache[sym] = (now, ctx)
+        logger.info("CoinGlass market_context %s: %s", sym, format_market_context_brief(ctx))
         return ctx
+
+
+def _mask_api_key(key: str) -> str:
+    k = (key or "").strip()
+    if len(k) <= 8:
+        return "***" if k else "(empty)"
+    return f"{k[:4]}…{k[-4:]}"
+
+
+def log_coinglass_startup(settings: Settings, client: CoinglassClient | None) -> None:
+    """启动时打印 CoinGlass 配置与可用性（便于排查未注入 key）。"""
+    rank_metrics = settings.candidate_rank_metrics() if settings.symbol_candidates_is_auto() else []
+    cg_rank = [m for m in rank_metrics if m.startswith("cg_")]
+    if not settings.coinglass_enabled():
+        if cg_rank or settings.coinglass_max_abs_funding_pct > 0 or settings.entry_cg_on:
+            logger.info(
+                "CoinGlass: OFF (COINGLASS_API_KEY empty). Rank metrics %s and entry/exit CG rules will degrade. "
+                "Set secrets/coinglass_api_key",
+                ",".join(cg_rank) if cg_rank else "(none in RANK_BY)",
+            )
+        else:
+            logger.info("CoinGlass: OFF (no API key configured)")
+        return
+    logger.info(
+        "CoinGlass: ON key=%s exchange=%s derivatives=%s liq_map=%s heatmap=%s "
+        "entry_cg=%s(weight=%.2f) rank_cg_metrics=%s funding_filter=%.4f",
+        _mask_api_key(settings.coinglass_api_key),
+        settings.coinglass_exchange,
+        settings.coinglass_derivatives_on,
+        settings.coinglass_liq_map_on,
+        settings.coinglass_liq_heatmap_on,
+        settings.entry_cg_on,
+        settings.entry_cg_weight,
+        ",".join(cg_rank) if cg_rank else "(none)",
+        settings.coinglass_max_abs_funding_pct,
+    )
+    if client is None:
+        logger.warning("CoinGlass: client build failed")
+        return
+    try:
+        import requests  # noqa: F401
+    except ImportError:
+        logger.warning('CoinGlass: pip install -e ".[coinglass]" (requests missing)')
+        return
+    snap = client.coin_metrics()
+    logger.info("CoinGlass startup probe: coins-markets returned %s symbols", len(snap))
 
 
 def build_coinglass_client(settings: Settings) -> CoinglassClient | None:

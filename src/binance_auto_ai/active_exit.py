@@ -161,7 +161,7 @@ def _coinglass_coin_metrics(settings: Settings, symbol: str, coinglass: object |
     try:
         metrics = coinglass.coin_metrics()  # type: ignore[attr-defined]
     except Exception as e:  # noqa: BLE001 - CoinGlass 异常不影响价格类止损
-        logger.debug("active exit: coinglass coin_metrics failed for %s (%s)", symbol, e)
+        logger.warning("CoinGlass exit %s: coin_metrics failed: %s", symbol, e)
         return None, None
     base = symbol.split("/")[0].upper()
     row = metrics.get(base) if isinstance(metrics, dict) else None
@@ -182,7 +182,7 @@ def _coinglass_market_context(
     try:
         return coinglass.market_context(symbol, mark_price=mark)  # type: ignore[attr-defined]
     except Exception as e:  # noqa: BLE001
-        logger.debug("active exit: coinglass market_context failed for %s (%s)", symbol, e)
+        logger.warning("CoinGlass exit %s: market_context failed: %s", symbol, e)
         return None
 
 

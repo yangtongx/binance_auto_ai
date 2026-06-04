@@ -242,6 +242,12 @@ def _format_score(metric: str, score: float) -> str:
         return f"{score:+.2f}%"
     if metric == "open_interest":
         return f"{score / 1e6:.2f}M"
+    if metric == "momentum":
+        return f"trend={score * 100:.3f}%"
+    if metric in ("cg_liq_below", "cg_liq_above"):
+        return f"${score / 1e6:.2f}M"
+    if metric.startswith("cg_"):
+        return f"{score:.4g}"
     return f"{score:.0f}"
 
 
@@ -429,19 +435,32 @@ def _attach_coinglass_derivative_scores(
     want = [m for m in metrics if m in _COINGLASS_DERIV_RANK_METRICS]
     if not want or coinglass is None:
         return
+    attached: dict[str, int] = {m: 0 for m in want}
+    tried = 0
+    empty = 0
     for sym, _ticker, last_f, metric_values in passed:
         if sym not in only_symbols:
             continue
+        tried += 1
         try:
             ctx = coinglass.market_context(sym, mark_price=last_f)  # type: ignore[attr-defined]
         except Exception as e:  # noqa: BLE001
-            logger.debug("cg derivative metrics failed for %s: %s", sym, e)
+            logger.warning("CoinGlass deriv rank %s: market_context failed: %s", sym, e)
             continue
         if ctx is None:
+            empty += 1
             continue
         for k, v in rank_metrics_from_context(ctx).items():
             if k in want:
                 metric_values[k] = v
+                attached[k] = attached.get(k, 0) + 1
+    logger.info(
+        "CoinGlass deriv rank: shortlist=%s tried=%s empty=%s attached=%s",
+        len(only_symbols),
+        tried,
+        empty,
+        {k: attached[k] for k in want},
+    )
 
 
 def _attach_funding_scores(
@@ -509,7 +528,15 @@ def select_top_usdm_candidates(
     need_coinglass = need_coinglass_bulk or need_coinglass_deriv
     cg_map: dict[str, dict[str, float | None]] = {}
     if need_coinglass:
-        if coinglass is None:
+        if not settings.coinglass_enabled():
+            logger.info(
+                "CoinGlass candidate rank: need bulk=%s deriv=%s but API key empty — "
+                "metrics %s will be skipped",
+                need_coinglass_bulk,
+                need_coinglass_deriv,
+                ",".join(m for m in metrics if m in _COINGLASS_RANK_METRICS),
+            )
+        elif coinglass is None:
             from binance_auto_ai.coinglass import build_coinglass_client
 
             coinglass = build_coinglass_client(settings)
@@ -519,6 +546,8 @@ def select_top_usdm_candidates(
             except Exception as e:  # noqa: BLE001
                 logger.warning("CoinGlass coin_metrics failed (%s); cg metrics/filter skipped", e)
                 cg_map = {}
+        elif settings.coinglass_enabled():
+            logger.warning("CoinGlass candidate rank: client unavailable")
     max_abs_funding = float(settings.coinglass_max_abs_funding_pct)
     skipped_funding: list[tuple[str, float]] = []
 
@@ -648,11 +677,18 @@ def select_top_usdm_candidates(
         )
     else:
         if set(active_metrics) != set(metrics):
+            dropped = [m for m in metrics if m not in active_metrics]
             logger.info(
                 "auto candidates: using metrics with data only: %s (requested %s)",
                 ",".join(active_metrics),
                 ",".join(metrics),
             )
+            if any(m.startswith("cg_") for m in dropped):
+                logger.info(
+                    "CoinGlass rank metrics dropped (no data): %s — check startup CoinGlass logs / "
+                    "secrets/coinglass_api_key / Professional+ for liq map",
+                    ",".join(dropped),
+                )
 
     norm_by_metric: dict[str, dict[str, float]] = {}
     for metric in active_metrics:

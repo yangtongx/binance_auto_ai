@@ -395,6 +395,30 @@ def format_market_context_for_llm(ctx: CoinGlassMarketContext) -> str:
     return format_market_context(ctx)
 
 
+def format_market_context_brief(ctx: CoinGlassMarketContext) -> str:
+    """单行摘要（INFO 日志用）。"""
+    parts: list[str] = [ctx.coin]
+    if ctx.mark_price is not None:
+        parts.append(f"mark={ctx.mark_price:.6g}")
+    if ctx.top_account_long_pct is not None:
+        parts.append(f"topAccL={ctx.top_account_long_pct:.1f}%")
+    if ctx.top_position_long_pct is not None:
+        parts.append(f"topPosL={ctx.top_position_long_pct:.1f}%")
+    if ctx.global_account_long_pct is not None:
+        parts.append(f"globalL={ctx.global_account_long_pct:.1f}%")
+    if ctx.net_position_change_cum is not None:
+        parts.append(f"netCum={ctx.net_position_change_cum:.4g}")
+    if ctx.liq_notional_below_mark_usd is not None:
+        parts.append(f"map↓=${ctx.liq_notional_below_mark_usd / 1e6:.2f}M")
+    if ctx.liq_notional_above_mark_usd is not None:
+        parts.append(f"map↑=${ctx.liq_notional_above_mark_usd / 1e6:.2f}M")
+    if ctx.liq_heatmap_below_usd is not None:
+        parts.append(f"heat↓=${ctx.liq_heatmap_below_usd / 1e6:.2f}M")
+    if ctx.liq_heatmap_above_usd is not None:
+        parts.append(f"heat↑=${ctx.liq_heatmap_above_usd / 1e6:.2f}M")
+    return " ".join(parts)
+
+
 # 选币排名维度名（与 symbol_universe._RANK_METRICS 一致）
 CG_DERIV_RANK_METRICS = frozenset(
     {

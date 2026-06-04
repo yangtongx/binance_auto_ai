@@ -520,10 +520,10 @@ def run_loop(settings: Settings, *, once: bool = False) -> None:
     ex = build_exchange(settings)
     load_binance_usdm_markets(ex)
     coinglass_client = None
-    if settings.coinglass_enabled():
-        from binance_auto_ai.coinglass import build_coinglass_client
+    from binance_auto_ai.coinglass import build_coinglass_client, log_coinglass_startup
 
-        coinglass_client = build_coinglass_client(settings)
+    coinglass_client = build_coinglass_client(settings)
+    log_coinglass_startup(settings, coinglass_client)
     cg_alert_watcher: CoinglassAlertWatcher | None = None
     if settings.coinglass_alert_enabled():
         cg_alert_watcher = CoinglassAlertWatcher()

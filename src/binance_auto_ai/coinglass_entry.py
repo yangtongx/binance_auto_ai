@@ -192,22 +192,34 @@ def fetch_entry_contexts(
 ) -> dict[str, CoinGlassMarketContext]:
     """为达到 min_confidence 的方向信号拉取 CoinGlass 快照（含地图+热力图）。"""
     if coinglass is None or not entry_cg_enabled(settings):
+        if entry_cg_enabled(settings) and coinglass is None:
+            logger.info("CoinGlass entry: skipped (no client / API key)")
         return {}
     from binance_auto_ai.positions import mark_last_usdt
 
     out: dict[str, CoinGlassMarketContext] = {}
+    tried = 0
     for sym in candidates:
         sig = signals.get(sym)
         if sig is None or sig.action not in (Action.LONG, Action.SHORT):
             continue
         if sig.confidence < settings.min_confidence:
             continue
+        tried += 1
         mark: float | None = None
         try:
             mark = mark_last_usdt(ex, sym)
         except Exception as e:  # noqa: BLE001
-            logger.debug("entry cg mark for %s failed: %s", sym, e)
+            logger.warning("CoinGlass entry %s: mark price failed: %s", sym, e)
         ctx = coinglass.market_context(sym, mark_price=mark)
         if ctx is not None:
             out[sym] = ctx
+    logger.info(
+        "CoinGlass entry: contexts=%s/%s directional (weight=%.2f block_against=%s min_liq_usd=%.0f)",
+        len(out),
+        tried,
+        settings.entry_cg_weight,
+        settings.entry_cg_block_against,
+        settings.entry_cg_liq_min_usd,
+    )
     return out
